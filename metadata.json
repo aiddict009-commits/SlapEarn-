@@ -1,0 +1,6 @@
+{
+  "name": "SlapEarn",
+  "description": "A gamified rewards platform where users earn points by completing daily tasks, interactive micro-surveys, watching ads, and exploring offerwalls, with a fully simulated reward redemption system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

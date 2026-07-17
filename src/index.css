@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600;800;900&family=Fira+Mono:wght@400;700&display=swap');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Space Grotesk", ui-serif, system-ui, serif;
+}
+
+/* Elegant Dotted Grid Background pattern used in the Slap Game */
+.bg-dots {
+  background-image: radial-gradient(#1e293b 1.5px, transparent 1.5px);
+  background-size: 16px 16px;
+}
+
+/* Hide scrollbars for a clean app feel */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
