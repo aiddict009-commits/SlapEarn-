@@ -1,17 +1,24 @@
+export interface HandRequirement {
+  requiredAds: number;
+  spPrice: number;
+  requiredTasks: number;
+  requiredLevel?: number;
+}
+
 export interface HandUpgrade {
   id: string;
   name: string;
-  rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
-  rarityColor: string; // Tailwind color class for text/tag
-  borderColor: string; // Tailwind border color
-  shadowColor: string; // Custom shadow style matching image
-  image: string;
+  rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'MYTHIC';
+  rarityColor: string;
+  borderColor: string;
+  shadowColor: string;
   description: string;
   minDamage: number;
   maxDamage: number;
-  criticalChance: number; // e.g. 0.05 for 5%
-  spBonus: number; // e.g. 0.05 for +5%
-  unlockCost: number;
+  criticalChance: number;
+  spBonus: number;
+  unlockCost: number; // for backward compatibility
+  requirements: HandRequirement;
 }
 
 export const HAND_UPGRADES: HandUpgrade[] = [
@@ -19,75 +26,75 @@ export const HAND_UPGRADES: HandUpgrade[] = [
     id: 'wooden',
     name: 'Wooden Hand',
     rarity: 'COMMON',
-    rarityColor: 'bg-slate-600 text-white',
-    borderColor: 'border-slate-800',
-    shadowColor: 'shadow-[0_4px_12px_rgba(100,116,139,0.15)]',
-    image: '/src/assets/images/wooden_hand_1784281310329.jpg',
-    description: 'Simple but reliable.',
+    rarityColor: 'bg-amber-800 text-white',
+    borderColor: 'border-amber-900',
+    shadowColor: 'shadow-[0_4px_12px_rgba(139,90,43,0.25)]',
+    description: 'Basic wooden hand. Unlocked by default, sturdy & reliable.',
     minDamage: 1,
     maxDamage: 2,
     criticalChance: 0.05,
     spBonus: 0.0,
-    unlockCost: 0
+    unlockCost: 0,
+    requirements: { requiredAds: 0, spPrice: 0, requiredTasks: 0 }
   },
   {
-    id: 'iron',
-    name: 'Iron Hand',
+    id: 'stone',
+    name: 'Stone Hand',
     rarity: 'UNCOMMON',
-    rarityColor: 'bg-emerald-600 text-white',
-    borderColor: 'border-emerald-600',
-    shadowColor: 'shadow-[0_4px_12px_rgba(16,185,129,0.2)]',
-    image: '/src/assets/images/iron_hand_1784281319928.jpg',
-    description: 'Solid and dependable.',
+    rarityColor: 'bg-slate-600 text-white',
+    borderColor: 'border-slate-700',
+    shadowColor: 'shadow-[0_4px_12px_rgba(71,85,105,0.3)]',
+    description: 'Heavy stone hand. Delivers crushing slaps!',
     minDamage: 2,
     maxDamage: 4,
     criticalChance: 0.10,
     spBonus: 0.05,
-    unlockCost: 1000
+    unlockCost: 2500,
+    requirements: { requiredAds: 100, spPrice: 2500, requiredTasks: 2 }
   },
   {
-    id: 'golden',
-    name: 'Golden Hand',
-    rarity: 'RARE',
-    rarityColor: 'bg-blue-600 text-white',
-    borderColor: 'border-blue-600',
-    shadowColor: 'shadow-[0_4px_12px_rgba(59,130,246,0.2)]',
-    image: '/src/assets/images/golden_hand_1784281328952.jpg',
-    description: 'Shiny, powerful, legendary.',
-    minDamage: 4,
-    maxDamage: 7,
-    criticalChance: 0.18,
-    spBonus: 0.12,
-    unlockCost: 5000
-  },
-  {
-    id: 'crystal',
-    name: 'Crystal Hand',
+    id: 'gold',
+    name: 'Gold Hand',
     rarity: 'EPIC',
-    rarityColor: 'bg-purple-600 text-white',
-    borderColor: 'border-purple-600',
-    shadowColor: 'shadow-[0_4px_12px_rgba(168,85,247,0.2)]',
-    image: '/src/assets/images/crystal_hand_1784281340966.jpg',
-    description: 'Refined for maximum impact.',
+    rarityColor: 'bg-amber-500 text-slate-950 font-black',
+    borderColor: 'border-amber-500',
+    shadowColor: 'shadow-[0_4px_12px_rgba(245,158,11,0.35)]',
+    description: 'Pure gold hand. Extremely shiny and lucrative.',
     minDamage: 7,
     maxDamage: 12,
     criticalChance: 0.25,
-    spBonus: 0.20,
-    unlockCost: 20000
+    spBonus: 0.25,
+    unlockCost: 20000,
+    requirements: { requiredAds: 500, spPrice: 20000, requiredTasks: 10, requiredLevel: 50 }
   },
   {
-    id: 'dragon',
-    name: 'Dragon Hand',
+    id: 'diamond',
+    name: 'Diamond Hand',
     rarity: 'LEGENDARY',
-    rarityColor: 'bg-amber-600 text-white',
-    borderColor: 'border-amber-600',
-    shadowColor: 'shadow-[0_4px_12px_rgba(245,158,11,0.2)]',
-    image: '/src/assets/images/dragon_hand_1784281351520.jpg',
-    description: 'Forged in fire. Supreme power.',
+    rarityColor: 'bg-cyan-500 text-slate-950 font-black',
+    borderColor: 'border-cyan-500',
+    shadowColor: 'shadow-[0_4px_12px_rgba(6,182,212,0.4)]',
+    description: 'Faceted diamond hand. Unstoppable slap power!',
     minDamage: 12,
     maxDamage: 20,
-    criticalChance: 0.35,
-    spBonus: 0.35,
-    unlockCost: 50000
+    criticalChance: 0.40,
+    spBonus: 0.50,
+    unlockCost: 50000,
+    requirements: { requiredAds: 1000, spPrice: 50000, requiredTasks: 20, requiredLevel: 75 }
+  },
+  {
+    id: 'legendary',
+    name: 'Legendary Hand',
+    rarity: 'MYTHIC',
+    rarityColor: 'bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500 text-white font-black',
+    borderColor: 'border-purple-600',
+    shadowColor: 'shadow-[0_4px_16px_rgba(168,85,247,0.45)]',
+    description: 'Mythical radiant hand of supreme slap dominance.',
+    minDamage: 20,
+    maxDamage: 35,
+    criticalChance: 0.60,
+    spBonus: 1.0,
+    unlockCost: 150000,
+    requirements: { requiredAds: 2000, spPrice: 150000, requiredTasks: 40, requiredLevel: 100 }
   }
 ];

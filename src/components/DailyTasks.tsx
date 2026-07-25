@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, MouseEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Flame, Zap, Sparkles, HelpCircle, Check, X, Trophy, RefreshCw, Hand } from 'lucide-react';
+import { Flame, Zap, Sparkles, HelpCircle, Check, X, Trophy, RefreshCw, Hand, Star } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { UserStats, QuizQuestion, Transaction } from '../types';
 
@@ -44,7 +44,18 @@ const TRIVIA_QUESTIONS: QuizQuestion[] = [
 
 export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectly, addNotification }: DailyTasksProps) {
   // Streaks / Check-in
-  const [checkInClaimed, setCheckInClaimed] = useState<boolean>(false);
+  const [checkInClaimed, setCheckInClaimed] = useState<boolean>(() => {
+    return stats.lastCheckIn 
+      ? new Date(stats.lastCheckIn).toDateString() === new Date().toDateString() 
+      : false;
+  });
+
+  useEffect(() => {
+    const claimed = stats.lastCheckIn 
+      ? new Date(stats.lastCheckIn).toDateString() === new Date().toDateString() 
+      : false;
+    setCheckInClaimed(claimed);
+  }, [stats.lastCheckIn]);
   
   // Slap Game state
   const [slapEnergy, setSlapEnergy] = useState<number>(stats.maxSlapsPerDay - stats.slapsToday);
@@ -64,6 +75,17 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
     setSlapEnergy(stats.maxSlapsPerDay - stats.slapsToday);
   }, [stats.slapsToday, stats.maxSlapsPerDay]);
 
+  // Setup initial state for mock check-in day checking
+  const daysOfCheckIn = [
+    { day: 1, slaps: 5, coins: 0 },
+    { day: 2, slaps: 8, coins: 0 },
+    { day: 3, slaps: 10, coins: 0 },
+    { day: 4, slaps: 12, coins: 0 },
+    { day: 5, slaps: 15, coins: 0 },
+    { day: 6, slaps: 20, coins: 0 },
+    { day: 7, slaps: 25, coins: 50 }
+  ];
+
   // Handle daily check-in
   const handleCheckIn = () => {
     if (checkInClaimed) {
@@ -72,20 +94,42 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
     }
 
     const nextStreak = stats.streak + 1;
-    const baseReward = 100;
-    const streakBonus = stats.streak * 20;
-    const totalCheckInReward = baseReward + streakBonus;
-    const xpReward = 50;
+    const rewardItem = daysOfCheckIn[stats.streak];
+    if (!rewardItem) return;
 
-    updateCoinsAndXp(totalCheckInReward, xpReward, 'Daily Check-in', `Day ${nextStreak} Check-in Streak`);
+    // Available slaps calculation under the 100 limit rule
+    const currentSlaps = Math.max(0, stats.maxSlapsPerDay - stats.slapsToday);
+    const maxSlapsLimit = 100;
+    const spaceLeft = maxSlapsLimit - currentSlaps;
+    const slapsToGive = Math.max(0, Math.min(rewardItem.slaps, spaceLeft));
+    const nextSlapsToday = stats.maxSlapsPerDay - (currentSlaps + slapsToGive);
+
+    // Coins reward
+    if (rewardItem.coins > 0) {
+      updateCoinsAndXp(rewardItem.coins, 10, 'Daily Check-in', `Day ${nextStreak} Daily Login Reward`);
+    } else {
+      // Still log check-in transaction with 0 coins but small XP
+      updateCoinsAndXp(0, 10, 'Daily Check-in', `Day ${nextStreak} Daily Login Reward`);
+    }
+
     updateStatsDirectly({
       streak: nextStreak,
-      lastCheckIn: new Date().toISOString()
+      lastCheckIn: new Date().toISOString(),
+      slapsToday: nextSlapsToday
     });
 
     setCheckInClaimed(true);
     sound.playSuccess();
-    addNotification('Check-in Claimed!', `Earned +${totalCheckInReward} Coins & +${xpReward} XP for Day ${nextStreak}!`, 'success');
+
+    let rewardMsg = `Earned +${slapsToGive} Slaps!`;
+    if (rewardItem.coins > 0) {
+      rewardMsg = `Earned +${slapsToGive} Slaps & +${rewardItem.coins} SP!`;
+    }
+    if (slapsToGive < rewardItem.slaps) {
+      rewardMsg += ` (Reached the 100 Slaps limit)`;
+    }
+    
+    addNotification('Check-in Claimed!', rewardMsg, 'success');
   };
 
   // Handle giant slap click
@@ -169,17 +213,6 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
     setQuizStatus('idle');
   };
 
-  // Setup initial state for mock check-in day checking
-  const daysOfCheckIn = [
-    { day: 1, reward: 100, xp: 50 },
-    { day: 2, reward: 120, xp: 50 },
-    { day: 3, reward: 150, xp: 60 },
-    { day: 4, reward: 180, xp: 60 },
-    { day: 5, reward: 220, xp: 75 },
-    { day: 6, reward: 280, xp: 80 },
-    { day: 7, reward: 400, xp: 120 }
-  ];
-
   return (
     <div className="space-y-8" id="daily-tasks-tab">
       
@@ -250,20 +283,37 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto text-lg ${
                       isCurrent ? 'bg-amber-500/20 text-amber-500' : 'bg-slate-900 text-slate-600'
                     }`}>
-                      🪙
+                      {item.day === 7 ? '🎁' : '👋'}
                     </div>
                   )}
                 </div>
 
                 <div>
-                  <div className={`font-display font-bold text-sm ${isCurrent ? 'text-amber-500' : ''}`}>
-                    +{item.reward}
+                  <div className={`font-display font-black text-xs sm:text-sm ${isCurrent ? 'text-amber-500' : 'text-slate-200'}`}>
+                    +{item.slaps} Slaps
                   </div>
-                  <div className="text-[10px] opacity-75">+{item.xp} XP</div>
+                  {item.coins > 0 && (
+                    <div className="font-display font-black text-xs text-amber-400 mt-1 flex items-center justify-center gap-0.5">
+                      <span>⭐</span>
+                      <span>+{item.coins} SP</span>
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
+        </div>
+
+        {/* Rules block matching the user's screenshot */}
+        <div className="mt-6 border-t border-slate-800/80 pt-5">
+          <h3 className="text-white font-bold font-display text-sm mb-3">Rules</h3>
+          <ul className="text-slate-400 text-xs space-y-2 list-disc list-inside">
+            <li>One reward per day.</li>
+            <li>Missing a day resets the streak to Day 1.</li>
+            <li>
+              Rewards cannot take the player above the <span className="text-amber-400 font-bold">100 Slap storage limit</span>. For example, if a player has 90 Slaps and claims Day 7, they would receive only 10 Slaps (reaching the cap of 100), but they would still receive the full 50 SP.
+            </li>
+          </ul>
         </div>
       </section>
 

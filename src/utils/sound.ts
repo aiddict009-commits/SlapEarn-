@@ -24,46 +24,77 @@ class SoundSynthesizer {
     return this.isMuted;
   }
 
-  // A crisp, explosive slapping sound
+  // Cute, playful anime-style sound ("Pico! / Kyun!") with bouncy pitch sweep, soft tactile tap & sweet anime sparkle
   public playSlap() {
     if (this.isMuted) return;
     try {
       const ctx = this.initContext();
       const now = ctx.currentTime;
 
-      // Noise source for the friction slap
-      const bufferSize = ctx.sampleRate * 0.08; // 80ms slap
+      // 1. Soft anime tactile tap (filtered soft noise)
+      const bufferSize = Math.floor(ctx.sampleRate * 0.035); // 35ms soft impact
       const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
       const data = buffer.getChannelData(0);
       for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1;
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.3));
       }
 
       const noiseNode = ctx.createBufferSource();
       noiseNode.buffer = buffer;
 
-      // Bandpass filter to sculpt the slap
       const bandpass = ctx.createBiquadFilter();
-      bandpass.type = 'bandpass';
-      bandpass.frequency.setValueAtTime(1000, now);
-      bandpass.frequency.exponentialRampToValueAtTime(150, now + 0.08);
-      bandpass.Q.setValueAtTime(8, now);
+      bandpass.type = 'highpass';
+      bandpass.frequency.setValueAtTime(1800, now);
 
-      // Low frequency body oscillator for the physical thud
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(120, now);
-      osc.frequency.exponentialRampToValueAtTime(40, now + 0.06);
-
-      // Envelopes
       const noiseGain = ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.5, now);
-      noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.07);
+      noiseGain.gain.setValueAtTime(0.18, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
 
-      const oscGain = ctx.createGain();
-      oscGain.gain.setValueAtTime(0.6, now);
-      oscGain.gain.exponentialRampToValueAtTime(0.01, now + 0.06);
+      // 2. Iconic Anime Cute Pitch Chirp ("Kyun! / Pico!")
+      // Rapid upward pitch jump gives the signature anime sound effect feel
+      const animeChirp = ctx.createOscillator();
+      animeChirp.type = 'sine';
+      animeChirp.frequency.setValueAtTime(700, now);
+      animeChirp.frequency.exponentialRampToValueAtTime(1950, now + 0.045);
+      animeChirp.frequency.exponentialRampToValueAtTime(1200, now + 0.08);
 
+      const chirpGain = ctx.createGain();
+      chirpGain.gain.setValueAtTime(0.38, now);
+      chirpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
+
+      // 3. Cute Bouncy Pop/Bloop ("Poyon!")
+      const popOsc = ctx.createOscillator();
+      popOsc.type = 'triangle';
+      popOsc.frequency.setValueAtTime(450, now);
+      popOsc.frequency.exponentialRampToValueAtTime(980, now + 0.03);
+      popOsc.frequency.exponentialRampToValueAtTime(320, now + 0.06);
+
+      const popGain = ctx.createGain();
+      popGain.gain.setValueAtTime(0.28, now);
+      popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+
+      // 4. Sparkling Anime Twinkle Chime ("Kira Kira!")
+      // High-pitched dual sine sparkles: E6 (1318Hz) -> B6 (1975Hz) -> E7 (2637Hz)
+      const sparkle1 = ctx.createOscillator();
+      const sparkle2 = ctx.createOscillator();
+
+      sparkle1.type = 'sine';
+      sparkle1.frequency.setValueAtTime(1318.51, now); // E6
+      sparkle1.frequency.exponentialRampToValueAtTime(1975.53, now + 0.05); // B6
+
+      sparkle2.type = 'sine';
+      sparkle2.frequency.setValueAtTime(1975.53, now + 0.015); // B6
+      sparkle2.frequency.exponentialRampToValueAtTime(2637.02, now + 0.07); // E7
+
+      const sparkleGain1 = ctx.createGain();
+      sparkleGain1.gain.setValueAtTime(0.2, now);
+      sparkleGain1.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+
+      const sparkleGain2 = ctx.createGain();
+      sparkleGain2.gain.setValueAtTime(0.22, now + 0.015);
+      sparkleGain2.gain.exponentialRampToValueAtTime(0.001, now + 0.095);
+
+      // Master output node
       const masterGain = ctx.createGain();
       masterGain.gain.setValueAtTime(0.4, now);
 
@@ -72,19 +103,37 @@ class SoundSynthesizer {
       bandpass.connect(noiseGain);
       noiseGain.connect(masterGain);
 
-      osc.connect(oscGain);
-      oscGain.connect(masterGain);
+      animeChirp.connect(chirpGain);
+      chirpGain.connect(masterGain);
+
+      popOsc.connect(popGain);
+      popGain.connect(masterGain);
+
+      sparkle1.connect(sparkleGain1);
+      sparkleGain1.connect(masterGain);
+
+      sparkle2.connect(sparkleGain2);
+      sparkleGain2.connect(masterGain);
 
       masterGain.connect(ctx.destination);
 
-      // Start and Stop
+      // Trigger all sounds
       noiseNode.start(now);
-      noiseNode.stop(now + 0.08);
+      noiseNode.stop(now + 0.035);
 
-      osc.start(now);
-      osc.stop(now + 0.08);
+      animeChirp.start(now);
+      animeChirp.stop(now + 0.085);
+
+      popOsc.start(now);
+      popOsc.stop(now + 0.065);
+
+      sparkle1.start(now);
+      sparkle1.stop(now + 0.07);
+
+      sparkle2.start(now + 0.015);
+      sparkle2.stop(now + 0.095);
     } catch (e) {
-      console.warn('Web Audio slap failed:', e);
+      console.warn('Web Audio cute anime slap failed:', e);
     }
   }
 

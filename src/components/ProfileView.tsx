@@ -16,10 +16,15 @@ import {
   Users,
   Smartphone,
   Star,
-  Info
+  Info,
+  Lock,
+  Check,
+  Sparkles,
+  Shield
 } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { UserStats, Transaction } from '../types';
+import { TITLE_TIERS, TitleTier, getTitleTierForLevel } from '../utils/titles';
 
 interface ProfileViewProps {
   stats: UserStats;
@@ -28,7 +33,10 @@ interface ProfileViewProps {
   transactions: Transaction[];
   isMuted?: boolean;
   onToggleMute?: () => void;
+  onLogout?: () => void;
   addNotification?: (title: string, message: string, type: 'success' | 'info') => void;
+  updateStatsDirectly?: (newStats: Partial<UserStats>) => void;
+  updateCoinsAndXp?: (coinReward: number, xpReward: number, category: Transaction['category'], title: string) => void;
 }
 
 export default function ProfileView({ 
@@ -38,7 +46,10 @@ export default function ProfileView({
   transactions,
   isMuted = false,
   onToggleMute,
-  addNotification
+  onLogout,
+  addNotification,
+  updateStatsDirectly,
+  updateCoinsAndXp
 }: ProfileViewProps) {
   
   // State for modals
@@ -46,8 +57,16 @@ export default function ProfileView({
   const [isSoundEffectsOpen, setIsSoundEffectsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [isLogoutOpen, setIsLogoutOpen] = useState<boolean>(false);
+  const [filterTab, setFilterTab] = useState<'all' | 'unlocked' | 'locked'>('all');
 
-  // Dynamic values with fallbacks to match the screenshot defaults exactly
+  // Currently equipped title and frame (fallbacks to highest level title)
+  const currentLevelTier = getTitleTierForLevel(stats.level);
+  const currentTitle = stats.equippedTitle || currentLevelTier.title;
+  const equippedBadgeObj = TITLE_TIERS.find((b) => b.title === currentTitle) || currentLevelTier;
+  const equippedFrame = stats.equippedFrame || equippedBadgeObj.frameType || 'none';
+  const hasGoldenName = equippedBadgeObj.hasGoldenName || currentTitle === 'Legend' || currentTitle === 'Grand Master';
+
+  // Dynamic values with fallbacks
   const bestCombo = stats.bestCombo ?? 18;
   const daysActive = stats.daysActive ?? 12;
   const referrals = stats.referrals ?? 3;
@@ -57,6 +76,21 @@ export default function ProfileView({
     if (onToggleMute) {
       onToggleMute();
     }
+  };
+
+  const handleEquipBadge = (badge: TitleTier) => {
+    sound.playSuccess();
+    if (updateStatsDirectly) {
+      updateStatsDirectly({
+        equippedTitle: badge.title,
+        equippedFrame: badge.frameType || 'none',
+      });
+    }
+    addNotification?.(
+      'Title Equipped!',
+      `Equipped "${badge.icon} ${badge.title}". Perk: ${badge.rewardText}`,
+      'success'
+    );
   };
 
   const handleTestSound = (type: 'slap' | 'success' | 'error' | 'levelUp') => {
@@ -82,22 +116,56 @@ export default function ProfileView({
 
   const handleConfirmLogout = () => {
     sound.playSuccess();
-    localStorage.removeItem('slapearn_stats');
-    localStorage.removeItem('slapearn_transactions');
-    addNotification?.('Account Reset', 'You have logged out successfully!', 'success');
     setIsLogoutOpen(false);
-    setTimeout(() => {
-      window.location.reload();
-    }, 500);
+    if (onLogout) {
+      onLogout();
+    } else {
+      localStorage.removeItem('slapearn_stats');
+      localStorage.removeItem('slapearn_transactions');
+      localStorage.removeItem('slapearn_auth_user');
+      addNotification?.('Account Reset', 'You have logged out successfully!', 'success');
+      setTimeout(() => {
+        window.location.reload();
+      }, 300);
+    }
   };
+
+  const isTierUnlocked = (tier: TitleTier) => {
+    return stats.level >= tier.minLevel || (stats.achievedTitles || []).includes(tier.title);
+  };
+
+  const unlockedCount = TITLE_TIERS.filter(isTierUnlocked).length;
+
+  const filteredBadges = TITLE_TIERS.filter((tier) => {
+    const isUnlocked = isTierUnlocked(tier);
+    if (filterTab === 'unlocked') return isUnlocked;
+    if (filterTab === 'locked') return !isUnlocked;
+    return true;
+  });
 
   return (
     <div className="flex flex-col gap-3.5 text-slate-900 select-none pb-8" id="profile-view-scroll">
       
       {/* Profile Header Avatar */}
       <div className="flex flex-col items-center mt-1.5 mb-1.5" id="profile-avatar-sec">
-        {/* Smile Avatar Badge */}
-        <div className="relative w-28 h-28 bg-[#FFD043] border-4 border-slate-900 rounded-full flex items-center justify-center shadow-[3.5px_4px_0px_0px_rgba(15,23,42,1)]">
+        
+        {/* Crown ornament for Grand Master */}
+        {equippedFrame === 'gold_animated' && (
+          <div className="relative -mb-4 z-20 animate-bounce text-3xl drop-shadow-[0_4px_8px_rgba(245,158,11,0.6)]">
+            👑
+          </div>
+        )}
+
+        {/* Smile Avatar Badge with Dynamic Frame */}
+        <div className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all ${
+          equippedFrame === 'bronze'
+            ? 'bg-gradient-to-br from-[#d97706] via-[#b45309] to-[#78350f] p-1.5 border-4 border-[#78350f] shadow-[0_0_15px_rgba(217,119,6,0.5)]'
+            : equippedFrame === 'silver'
+            ? 'bg-gradient-to-br from-[#e2e8f0] via-[#94a3b8] to-[#475569] p-1.5 border-4 border-[#64748b] shadow-[0_0_15px_rgba(148,163,184,0.6)]'
+            : equippedFrame === 'gold_animated'
+            ? 'bg-gradient-to-r from-amber-400 via-yellow-200 to-amber-500 p-1.5 border-4 border-amber-500 shadow-[0_0_20px_rgba(251,191,36,0.8)] animate-pulse'
+            : 'bg-[#FFD043] border-4 border-slate-900 shadow-[3.5px_4px_0px_0px_rgba(15,23,42,1)]'
+        }`}>
           {/* Green Smile Face Circle */}
           <div className="w-20 h-20 bg-[#00D09E] border-4 border-slate-900 rounded-full flex items-center justify-center relative">
             <svg viewBox="0 0 100 100" className="w-13 h-13 text-slate-950 fill-none stroke-current stroke-[8.5px] stroke-linecap-round">
@@ -111,11 +179,23 @@ export default function ProfileView({
           </div>
         </div>
         
-        <h3 className="text-2xl font-black text-slate-950 tracking-tight mt-2">
+        {/* Name with Golden Gradient Option */}
+        <h3 className={`text-2xl font-black tracking-tight mt-2 ${
+          hasGoldenName 
+            ? 'bg-gradient-to-r from-amber-500 via-yellow-300 to-amber-600 bg-clip-text text-transparent drop-shadow-[0_2px_4px_rgba(245,158,11,0.3)]'
+            : 'text-slate-950'
+        }`}>
           Slap Champ
         </h3>
-        <p className="text-slate-400 font-bold text-xs mt-0.5">
-          Level {stats.level}
+
+        {/* Equipped Title Badge Pill */}
+        <div className="flex items-center gap-1.5 mt-1 px-3 py-1 bg-slate-900 border-2 border-slate-950 rounded-full shadow-[2px_2px_0px_0px_rgba(15,23,42,1)]">
+          <span className="text-sm">{equippedBadgeObj.icon}</span>
+          <span className="text-amber-300 font-black text-xs tracking-wider uppercase">{equippedBadgeObj.title}</span>
+        </div>
+
+        <p className="text-slate-400 font-bold text-xs mt-1">
+          Level {stats.level} • {unlockedCount}/8 Badges Unlocked
         </p>
       </div>
 
@@ -165,6 +245,137 @@ export default function ProfileView({
           <span className="text-slate-400 font-bold text-[10px] sm:text-[11px] leading-tight mt-1">
             Referrals
           </span>
+        </div>
+      </div>
+
+      {/* --- BADGES & TITLES REWARDS SECTION --- */}
+      <div className="bg-white rounded-[28px] border-4 border-slate-900 p-4 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-3" id="titles-badges-section">
+        
+        {/* Section Header */}
+        <div className="flex items-center justify-between border-b-2 border-slate-100 pb-2.5">
+          <div className="flex items-center gap-2">
+            <Award className="w-6 h-6 text-[#FF3B77]" />
+            <div>
+              <h4 className="text-base font-black text-slate-950 tracking-tight leading-none">
+                Titles & Badges
+              </h4>
+              <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                Unlock rewards, perks & profile customization
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-[#FFEAF0] border-2 border-slate-900 px-2.5 py-1 rounded-full text-xs font-black text-[#FF3B77] shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+            {unlockedCount} / {TITLE_TIERS.length}
+          </div>
+        </div>
+
+        {/* Filter Segment Pills */}
+        <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl border-2 border-slate-900">
+          <button
+            onClick={() => setFilterTab('all')}
+            className={`py-1 rounded-lg text-xs font-black transition-all ${
+              filterTab === 'all'
+                ? 'bg-slate-900 text-white shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            All ({TITLE_TIERS.length})
+          </button>
+          <button
+            onClick={() => setFilterTab('unlocked')}
+            className={`py-1 rounded-lg text-xs font-black transition-all ${
+              filterTab === 'unlocked'
+                ? 'bg-slate-900 text-white shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            Unlocked ({unlockedCount})
+          </button>
+          <button
+            onClick={() => setFilterTab('locked')}
+            className={`py-1 rounded-lg text-xs font-black transition-all ${
+              filterTab === 'locked'
+                ? 'bg-slate-900 text-white shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            Locked ({TITLE_TIERS.length - unlockedCount})
+          </button>
+        </div>
+
+        {/* Badges Table Grid List */}
+        <div className="flex flex-col gap-2.5 max-h-[380px] overflow-y-auto pr-1" id="badges-list-container">
+          {filteredBadges.map((badge) => {
+            const isUnlocked = isTierUnlocked(badge);
+            const isEquipped = currentTitle === badge.title;
+
+            return (
+              <div
+                key={badge.id}
+                className={`border-3 border-slate-900 rounded-2xl p-3 flex items-center justify-between gap-2.5 transition-all shadow-[2px_2.5px_0px_0px_rgba(15,23,42,1)] ${
+                  isEquipped
+                    ? 'bg-amber-50/80 border-amber-500'
+                    : isUnlocked
+                    ? 'bg-[#FDFBF2] hover:bg-white'
+                    : 'bg-slate-100/70 opacity-75'
+                }`}
+              >
+                {/* Badge Icon Circle */}
+                <div className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${badge.bgGrad} border-2 border-slate-900 flex items-center justify-center text-xl shrink-0 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] ${
+                  !isUnlocked ? 'grayscale opacity-60' : ''
+                }`}>
+                  {badge.icon}
+                </div>
+
+                {/* Badge Details */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h5 className="font-black text-xs text-slate-950 leading-none">
+                      {badge.title}
+                    </h5>
+                    {isEquipped && (
+                      <span className="text-[9px] font-black bg-emerald-400 text-slate-950 px-1.5 py-0.5 rounded border border-slate-900 uppercase">
+                        Active
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Unlock Reward */}
+                  <p className="text-[11px] font-black text-[#FF3B77] mt-0.5 leading-tight truncate">
+                    🎁 {badge.rewardText}
+                  </p>
+
+                  {/* Requirement */}
+                  <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                    🎯 {badge.levelRangeText}
+                  </p>
+                </div>
+
+                {/* Action Button / Badge Status */}
+                <div className="shrink-0">
+                  {isEquipped ? (
+                    <div className="flex items-center gap-1 bg-emerald-400 text-slate-950 font-black text-[10px] px-2.5 py-1.5 rounded-xl border-2 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                      <Check className="w-3.5 h-3.5 stroke-[3px]" />
+                      <span>EQUIPPED</span>
+                    </div>
+                  ) : isUnlocked ? (
+                    <button
+                      onClick={() => handleEquipBadge(badge)}
+                      className="bg-[#FFD043] hover:bg-[#FFE066] text-slate-950 font-black text-[10px] px-3 py-1.5 rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer"
+                    >
+                      EQUIP
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1 bg-slate-200 text-slate-500 font-bold text-[10px] px-2 py-1.5 rounded-xl border-2 border-slate-400">
+                      <Lock className="w-3 h-3 stroke-[2.5px]" />
+                      <span>LOCKED</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -502,24 +713,24 @@ export default function ProfileView({
               </div>
 
               <h3 className="text-xl font-black text-slate-950 tracking-tight mb-2">
-                Reset your account?
+                Log out of account?
               </h3>
               <p className="text-slate-500 font-bold text-xs leading-relaxed px-2 mb-6">
-                Are you sure you want to log out? This will completely clear your cached SlapPoints stats and local transaction ledger.
+                Are you sure you want to log out? You can log back in anytime with your username or email.
               </p>
 
               <div className="flex flex-col gap-2.5">
                 <button
                   onClick={handleConfirmLogout}
-                  className="w-full font-black text-xs py-3.5 rounded-2xl border-4 border-slate-900 bg-rose-500 hover:bg-rose-600 text-white shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95"
+                  className="w-full font-black text-xs py-3.5 rounded-2xl border-4 border-slate-900 bg-rose-500 hover:bg-rose-600 text-white shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer"
                 >
-                  Yes, reset and log out
+                  Yes, Log Out
                 </button>
                 <button
                   onClick={() => { sound.playSlap(); setIsLogoutOpen(false); }}
-                  className="w-full font-black text-xs py-3.5 rounded-2xl border-4 border-slate-900 bg-white hover:bg-slate-50 text-slate-950 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95"
+                  className="w-full font-black text-xs py-3.5 rounded-2xl border-4 border-slate-900 bg-white hover:bg-slate-50 text-slate-950 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer"
                 >
-                  No, keep playing
+                  Cancel
                 </button>
               </div>
             </motion.div>

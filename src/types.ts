@@ -8,6 +8,28 @@ export interface Transaction {
   status: 'completed' | 'pending' | 'failed';
 }
 
+export interface SurveyProfile {
+  dob?: string;
+  dobLocked?: boolean;
+  gender?: string;
+  country?: string;
+  countryLocked?: boolean;
+  state?: string;
+  city?: string;
+  zipCode?: string;
+  zipCodeLocked?: boolean;
+  education?: string;
+  employment?: string;
+  occupation?: string;
+  maritalStatus?: string;
+  children?: string;
+  income?: string;
+  languages?: string[];
+  interests?: string[];
+  completedOnce?: boolean;
+  lastUpdated?: string;
+}
+
 export interface UserStats {
   coins: number;
   totalEarned: number;
@@ -26,6 +48,38 @@ export interface UserStats {
   lastWheelSpin?: string;
   selectedHand?: string;
   unlockedHands?: string[];
+  equippedTitle?: string;
+  equippedFrame?: string;
+  unlockedBadges?: string[];
+  freeSpins?: number;
+  claimedTitleRewards?: string[];
+  achievedTitles?: string[];
+  referredByCode?: string;
+  username?: string;
+  email?: string;
+  myReferralCode?: string;
+  referredByRewardClaimed?: boolean;
+  totalAdsWatchedLifetime?: number;
+  referralsList?: Array<{ id: string; name: string; adsWatched: number; rewardClaimed: boolean; joinedAt: string }>;
+  referralsForCurrentWithdrawal?: number;
+  totalTasksCompleted?: number;
+  surveyProfile?: SurveyProfile;
+  slapsPlayedToday?: number;
+  charactersDefeatedToday?: number;
+  spEarnedToday?: number;
+  surveysCompletedToday?: number;
+  offersCompletedToday?: number;
+  claimedDailyChallenges?: string[];
+}
+
+export interface BadgeItem {
+  id: string;
+  title: string;
+  icon: string;
+  rewardText: string;
+  requirementText: string;
+  frameType?: 'none' | 'bronze' | 'silver' | 'gold_animated';
+  hasGoldenName?: boolean;
 }
 
 export interface SurveyQuestion {
@@ -77,7 +131,7 @@ export interface Offer {
 export interface RedemptionOption {
   id: string;
   name: string;
-  brand: 'paypal' | 'amazon' | 'googleplay' | 'steam' | 'bitcoin';
+  brand: 'paypal' | 'usdt' | 'amazon' | 'googleplay' | 'steam' | 'bitcoin' | string;
   rates: { coins: number; value: number }[];
   logo: string;
   color: string;

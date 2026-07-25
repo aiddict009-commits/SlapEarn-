@@ -1,8 +1,161 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { PlayCircle, RotateCw, ClipboardList, Users, Hand, X, Gift, Trophy, Sparkles, Clock } from 'lucide-react';
+import { PlayCircle, RotateCw, ClipboardList, Users, Hand, X, Gift, Trophy, Sparkles, Clock, ArrowLeft, CheckCircle2, ChevronRight, ExternalLink, Flame, ShieldCheck, Zap, Star, Lock, Save, Calendar, MapPin, GraduationCap, Briefcase, Heart, DollarSign, Globe, UserCheck, ShieldAlert, AlertTriangle, WifiOff } from 'lucide-react';
 import { UserStats, Transaction } from '../types';
 import { sound } from '../utils/sound';
+import { proxyGuard, NetworkSecurityStatus } from '../utils/proxyGuard';
+
+interface OfferItem {
+  id: string;
+  title: string;
+  rewardSp: number;
+  time: string;
+  type: string;
+  description: string;
+}
+
+interface OfferwallPartner {
+  id: string;
+  name: string;
+  badge: string;
+  badgeColor: string;
+  icon: string;
+  description: string;
+  avgReward: string;
+  estTime: string;
+  offers: OfferItem[];
+}
+
+const OFFERWALL_PARTNERS: OfferwallPartner[] = [
+  {
+    id: 'cpx',
+    name: 'CPX Research',
+    badge: '🔥 HOT SURVEYS',
+    badgeColor: 'bg-rose-500 text-white',
+    icon: '📊',
+    description: 'High-paying daily market research & consumer opinion surveys.',
+    avgReward: '1,000 – 3,500 SP',
+    estTime: '5 – 12 mins',
+    offers: [
+      {
+        id: 'cpx-1',
+        title: 'Global Shopping & E-Commerce Preferences 2026',
+        rewardSp: 1250,
+        time: '8 mins',
+        type: 'Market Survey',
+        description: 'Share your online shopping habits and brand preferences to earn 1,250 SP.'
+      },
+      {
+        id: 'cpx-2',
+        title: 'Tech & AI Software Daily Usage Study',
+        rewardSp: 1800,
+        time: '12 mins',
+        type: 'Tech Opinion',
+        description: 'Evaluate AI productivity tools and software you use daily.'
+      },
+      {
+        id: 'cpx-3',
+        title: 'Mobile Entertainment & Gaming Habits',
+        rewardSp: 1050,
+        time: '6 mins',
+        type: 'Entertainment',
+        description: 'Quick survey on streaming platforms and mobile gaming apps.'
+      }
+    ]
+  },
+  {
+    id: 'bitlabs',
+    name: 'BitLabs Offerwall',
+    badge: '🚀 HIGHEST PAY',
+    badgeColor: 'bg-amber-400 text-slate-950',
+    icon: '💎',
+    description: 'App installs, gaming milestones, and premium partner offers.',
+    avgReward: '1,500 – 5,000 SP',
+    estTime: '10 – 15 mins',
+    offers: [
+      {
+        id: 'bit-1',
+        title: 'Play Realm of Heroes & Reach Town Hall Level 5',
+        rewardSp: 3500,
+        time: '15 mins',
+        type: 'Game Task',
+        description: 'Install the game and build your kingdom to Level 5 town hall.'
+      },
+      {
+        id: 'bit-2',
+        title: 'Try FinTech Smart Wallet for 3 Days',
+        rewardSp: 2400,
+        time: '10 mins',
+        type: 'App Trial',
+        description: 'Download the app, create a free account, and explore features.'
+      },
+      {
+        id: 'bit-3',
+        title: 'Complete Consumer Audio Habits Questionnaire',
+        rewardSp: 1200,
+        time: '7 mins',
+        type: 'Survey',
+        description: 'Answer questions about music, podcasts, and audio headphones.'
+      }
+    ]
+  },
+  {
+    id: 'tapresearch',
+    name: 'TapResearch',
+    badge: '⚡ INSTANT CREDIT',
+    badgeColor: 'bg-[#00D09E] text-slate-950',
+    icon: '🎯',
+    description: 'Fast, mobile-optimized micro-surveys with partial credit guarantee.',
+    avgReward: '800 – 1,800 SP',
+    estTime: '3 – 6 mins',
+    offers: [
+      {
+        id: 'tap-1',
+        title: 'Streaming Services & Music Video Habits',
+        rewardSp: 1100,
+        time: '5 mins',
+        type: 'Quick Poll',
+        description: 'Tell us which streaming services you watch most often.'
+      },
+      {
+        id: 'tap-2',
+        title: 'Snack & Beverage Brand Preference Pulse',
+        rewardSp: 850,
+        time: '4 mins',
+        type: 'Brand Survey',
+        description: 'Short 10-question survey regarding beverage purchasing decisions.'
+      }
+    ]
+  },
+  {
+    id: 'theoremreach',
+    name: 'TheoremReach',
+    badge: '🌟 DAILY BONUS',
+    badgeColor: 'bg-purple-600 text-white',
+    icon: '🌟',
+    description: 'Personalized opinion surveys matching your profile & interests.',
+    avgReward: '1,000 – 2,800 SP',
+    estTime: '7 – 14 mins',
+    offers: [
+      {
+        id: 'theo-1',
+        title: 'Digital Banking & Mobile Payments Survey',
+        rewardSp: 1450,
+        time: '9 mins',
+        type: 'Finance Survey',
+        description: 'Provide feedback on contactless payments and digital wallets.'
+      },
+      {
+        id: 'theo-2',
+        title: 'Travel & Vacation Destination Plans 2026',
+        rewardSp: 2100,
+        time: '11 mins',
+        type: 'Lifestyle',
+        description: 'Share your upcoming travel destinations and booking preferences.'
+      }
+    ]
+  }
+];
 
 interface EarnViewProps {
   stats: UserStats;
@@ -55,12 +208,259 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
     return parts.join(' ');
   };
 
-  // Survey states
-  const [surveyStep, setSurveyStep] = useState<number>(1);
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  // Proxy & VPN Network Security Guard State
+  const [proxyStatus, setProxyStatus] = useState<NetworkSecurityStatus>(() => proxyGuard.getStatus());
+  const [isRecheckingProxy, setIsRecheckingProxy] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = proxyGuard.subscribe((status) => {
+      setProxyStatus(status);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleRecheckProxy = async () => {
+    sound.playSuccess();
+    setIsRecheckingProxy(true);
+    const updated = await proxyGuard.checkConnection();
+    setIsRecheckingProxy(false);
+
+    if (!updated.isProxyDetected) {
+      addNotification('Network Security Cleared!', 'No proxy or VPN detected. Offerwalls & surveys resumed!', 'success');
+    } else {
+      addNotification('Proxy/VPN Still Active', updated.reason || 'Public proxy or VPN header active.', 'info');
+    }
+  };
+
+  // Offerwall & Survey states
+  const [surveyTab, setSurveyTab] = useState<'offerwalls' | 'profile_survey'>('offerwalls');
+  const [selectedOfferwall, setSelectedOfferwall] = useState<OfferwallPartner | null>(null);
+  const [activeOfferPrompt, setActiveOfferPrompt] = useState<OfferItem | null>(null);
+  const [offerCompleting, setOfferCompleting] = useState<boolean>(false);
+  const [offerProgress, setOfferProgress] = useState<number>(0);
+  const [offerCompletedSuccess, setOfferCompletedSuccess] = useState<boolean>(false);
+
+  // Survey Profile Form States
+  const initialProfile = stats.surveyProfile || {};
+  const [profileDob, setProfileDob] = useState<string>(initialProfile.dob || '1998-05-15');
+  const [profileDobLocked, setProfileDobLocked] = useState<boolean>(initialProfile.dobLocked || false);
+
+  const [profileGender, setProfileGender] = useState<string>(initialProfile.gender || 'Prefer not to say');
+
+  const [profileCountry, setProfileCountry] = useState<string>(initialProfile.country || 'United States');
+  const [profileCountryLocked, setProfileCountryLocked] = useState<boolean>(initialProfile.countryLocked || false);
+
+  const [profileState, setProfileState] = useState<string>(initialProfile.state || 'California');
+  const [profileCity, setProfileCity] = useState<string>(initialProfile.city || 'Los Angeles');
+
+  const [profileZipCode, setProfileZipCode] = useState<string>(initialProfile.zipCode || '90210');
+  const [profileZipCodeLocked, setProfileZipCodeLocked] = useState<boolean>(initialProfile.zipCodeLocked || false);
+
+  const [profileEducation, setProfileEducation] = useState<string>(initialProfile.education || "Bachelor's Degree");
+  const [profileEmployment, setProfileEmployment] = useState<string>(initialProfile.employment || 'Full-Time');
+  const [profileOccupation, setProfileOccupation] = useState<string>(initialProfile.occupation || 'Technology & IT');
+  const [profileMaritalStatus, setProfileMaritalStatus] = useState<string>(initialProfile.maritalStatus || 'Single');
+  const [profileChildren, setProfileChildren] = useState<string>(initialProfile.children || 'None');
+  const [profileIncome, setProfileIncome] = useState<string>(initialProfile.income || '$50,000 - $74,999');
+
+  const [profileLanguages, setProfileLanguages] = useState<string[]>(initialProfile.languages || ['English', 'Spanish']);
+  const [profileInterests, setProfileInterests] = useState<string[]>(
+    initialProfile.interests || ['Technology', 'Gaming', 'Finance']
+  );
+
+  // Sync profile when stats.surveyProfile updates
+  useEffect(() => {
+    if (stats.surveyProfile) {
+      const p = stats.surveyProfile;
+      if (p.dob !== undefined) setProfileDob(p.dob);
+      if (p.dobLocked !== undefined) setProfileDobLocked(p.dobLocked);
+      if (p.gender !== undefined) setProfileGender(p.gender);
+      if (p.country !== undefined) setProfileCountry(p.country);
+      if (p.countryLocked !== undefined) setProfileCountryLocked(p.countryLocked);
+      if (p.state !== undefined) setProfileState(p.state);
+      if (p.city !== undefined) setProfileCity(p.city);
+      if (p.zipCode !== undefined) setProfileZipCode(p.zipCode);
+      if (p.zipCodeLocked !== undefined) setProfileZipCodeLocked(p.zipCodeLocked);
+      if (p.education !== undefined) setProfileEducation(p.education);
+      if (p.employment !== undefined) setProfileEmployment(p.employment);
+      if (p.occupation !== undefined) setProfileOccupation(p.occupation);
+      if (p.maritalStatus !== undefined) setProfileMaritalStatus(p.maritalStatus);
+      if (p.children !== undefined) setProfileChildren(p.children);
+      if (p.income !== undefined) setProfileIncome(p.income);
+      if (p.languages !== undefined) setProfileLanguages(p.languages);
+      if (p.interests !== undefined) setProfileInterests(p.interests);
+    }
+  }, [stats.surveyProfile]);
+
+  const calculateProfileCompletion = () => {
+    let filled = 0;
+    const totalFields = 14;
+
+    if (profileDob.trim()) filled++;
+    if (profileGender.trim()) filled++;
+    if (profileCountry.trim()) filled++;
+    if (profileState.trim()) filled++;
+    if (profileCity.trim()) filled++;
+    if (profileZipCode.trim()) filled++;
+    if (profileEducation.trim()) filled++;
+    if (profileEmployment.trim()) filled++;
+    if (profileOccupation.trim()) filled++;
+    if (profileMaritalStatus.trim()) filled++;
+    if (profileChildren.trim()) filled++;
+    if (profileIncome.trim()) filled++;
+    if (profileLanguages.length > 0) filled++;
+    if (profileInterests.length > 0) filled++;
+
+    return Math.round((filled / totalFields) * 100);
+  };
+
+  const toggleLanguage = (lang: string) => {
+    sound.playSlap();
+    if (profileLanguages.includes(lang)) {
+      if (profileLanguages.length > 1) {
+        setProfileLanguages(profileLanguages.filter((l) => l !== lang));
+      }
+    } else {
+      setProfileLanguages([...profileLanguages, lang]);
+    }
+  };
+
+  const toggleInterest = (interest: string) => {
+    sound.playSlap();
+    if (profileInterests.includes(interest)) {
+      if (profileInterests.length > 1) {
+        setProfileInterests(profileInterests.filter((i) => i !== interest));
+      }
+    } else {
+      setProfileInterests([...profileInterests, interest]);
+    }
+  };
+
+  const handleSaveSurveyProfile = () => {
+    if (proxyStatus.isProxyDetected) {
+      sound.playError();
+      addNotification(
+        'Survey Submission Paused 🛡️',
+        'Public Proxy / VPN connection detected! Please disable VPN and re-check connection to submit surveys.',
+        'info'
+      );
+      return;
+    }
+
+    sound.playSuccess();
+
+    // Lock DOB, Country, and ZIP Code when saved
+    const isDobLocked = profileDobLocked || Boolean(profileDob.trim());
+    const isCountryLocked = profileCountryLocked || Boolean(profileCountry.trim());
+    const isZipLocked = profileZipCodeLocked || Boolean(profileZipCode.trim());
+
+    setProfileDobLocked(isDobLocked);
+    setProfileCountryLocked(isCountryLocked);
+    setProfileZipCodeLocked(isZipLocked);
+
+    const nowStr = new Date().toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const isFirstTime = !stats.surveyProfile?.completedOnce;
+
+    const newProfile = {
+      dob: profileDob,
+      dobLocked: isDobLocked,
+      gender: profileGender,
+      country: profileCountry,
+      countryLocked: isCountryLocked,
+      state: profileState,
+      city: profileCity,
+      zipCode: profileZipCode,
+      zipCodeLocked: isZipLocked,
+      education: profileEducation,
+      employment: profileEmployment,
+      occupation: profileOccupation,
+      maritalStatus: profileMaritalStatus,
+      children: profileChildren,
+      income: profileIncome,
+      languages: profileLanguages,
+      interests: profileInterests,
+      completedOnce: true,
+      lastUpdated: nowStr
+    };
+
+    updateStatsDirectly({
+      surveyProfile: newProfile
+    });
+
+    if (isFirstTime) {
+      const nextTasks = (stats.totalTasksCompleted || 0) + 1;
+      const nextSurveysToday = (stats.surveysCompletedToday || 0) + 1;
+      updateStatsDirectly({ totalTasksCompleted: nextTasks, surveysCompletedToday: nextSurveysToday });
+      updateCoinsAndXp(500, 25, 'Survey', 'Completed Survey Profile');
+      addNotification(
+        '🎉 Survey Profile Saved (+500 SP)!',
+        'First-time profile bonus (+500 SP) credited! Info sent to partners for matching surveys.',
+        'success'
+      );
+    } else {
+      addNotification(
+        'Survey Profile Updated!',
+        'Saved latest info (no additional SP for profile edits). Date of Birth, Country, and ZIP remain locked.',
+        'success'
+      );
+    }
+  };
+
+  const startOfferCompletion = (offer: OfferItem) => {
+    if (proxyStatus.isProxyDetected) {
+      sound.playError();
+      addNotification(
+        'Offerwall Paused 🛡️',
+        'Public Proxy / VPN detected! Offerwalls and surveys are paused to prevent fraud. Disable VPN and re-check connection to resume.',
+        'info'
+      );
+      return;
+    }
+
+    sound.playSlap();
+    setActiveOfferPrompt(offer);
+    setOfferCompleting(true);
+    setOfferProgress(0);
+    setOfferCompletedSuccess(false);
+
+    let current = 0;
+    const interval = setInterval(() => {
+      current += 25;
+      setOfferProgress(current);
+      if (current >= 100) {
+        clearInterval(interval);
+        setOfferCompleting(false);
+        setOfferCompletedSuccess(true);
+        sound.playSuccess();
+
+        const nextTasks = (stats.totalTasksCompleted || 0) + 1;
+        const nextOffersToday = (stats.offersCompletedToday || 0) + 1;
+        const nextSurveysToday = (offer.type && offer.type.toLowerCase().includes('survey')) ? (stats.surveysCompletedToday || 0) + 1 : (stats.surveysCompletedToday || 0);
+        updateStatsDirectly({ 
+          totalTasksCompleted: nextTasks, 
+          offersCompletedToday: nextOffersToday,
+          surveysCompletedToday: nextSurveysToday
+        });
+        updateCoinsAndXp(offer.rewardSp, Math.floor(offer.rewardSp / 10), 'Survey', `Offerwall: ${offer.title}`);
+        addNotification(
+          '🎉 Offerwall Reward Claimed!',
+          `You completed "${offer.title}" and earned +${offer.rewardSp.toLocaleString()} SP!`,
+          'success'
+        );
+      }
+    }, 500);
+  };
 
   // Referral states
   const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [inputRefCode, setInputRefCode] = useState<string>('');
 
   // Start Video Ad
   const startAd = () => {
@@ -86,23 +486,42 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
         setIsAdPlaying(false);
         setAdFinished(true);
         sound.playSuccess();
-        // Decrement slapsToday by 3 (which increases available slaps by 3)
-        // Increment adsWatchedToday by 1
-        updateStatsDirectly({
+
+        const nextLifetime = (stats.totalAdsWatchedLifetime || 0) + 1;
+        const nextToday = (stats.adsWatchedToday ?? 0) + 1;
+
+        let updateObj: Partial<UserStats> = {
           slapsToday: Math.max(0, stats.slapsToday - 3),
-          adsWatchedToday: (stats.adsWatchedToday ?? 0) + 1
-        });
-        addNotification('Ad Completed!', '+3 slaps available!', 'success');
+          adsWatchedToday: nextToday,
+          totalAdsWatchedLifetime: nextLifetime
+        };
+
+        // Check 20-ads milestone for referee reward
+        if (nextLifetime >= 20 && !stats.referredByRewardClaimed && stats.referredByCode) {
+          updateObj.referredByRewardClaimed = true;
+          updateCoinsAndXp(100, 15, 'Ad', '20-Ads Referee Reward');
+          addNotification(
+            '🎉 20 Ads Milestone Reached!',
+            'You watched your first 20 ads! You & your referrer both received +100 SP!',
+            'success'
+          );
+        } else {
+          addNotification('Ad Completed!', '+3 slaps available!', 'success');
+        }
+
+        updateStatsDirectly(updateObj);
       }
     }, 1000);
   };
+
+  const hasFreeSpins = (stats.freeSpins || 0) > 0;
 
   // Start Wheel Spin
   const startSpin = () => {
     if (isSpinning) return;
     
-    // 5-hour cooldown check
-    if (isWheelOnCooldown) {
+    // 5-hour cooldown check unless player has free spins
+    if (isWheelOnCooldown && !hasFreeSpins) {
       sound.playError();
       addNotification('Lucky Wheel Cooldown', 'You can only spin once every 5 hours!', 'info');
       return;
@@ -112,10 +531,16 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
     setIsSpinning(true);
     setSpinResult(null);
 
-    // Save spin timestamp right now
-    updateStatsDirectly({
-      lastWheelSpin: new Date().toISOString()
-    });
+    // Deduct free spin if available, otherwise record last spin timestamp
+    if (hasFreeSpins) {
+      updateStatsDirectly({
+        freeSpins: (stats.freeSpins || 0) - 1
+      });
+    } else {
+      updateStatsDirectly({
+        lastWheelSpin: new Date().toISOString()
+      });
+    }
 
     // Let's divide into 6 segments:
     // 0-60: +10 SP (Segment 0)
@@ -202,33 +627,109 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
     }, 5000);
   };
 
-  // Submit Survey step
-  const submitSurveyStep = () => {
-    if (!selectedAnswer) return;
-    sound.playSlap();
-
-    if (surveyStep < 3) {
-      setSurveyStep(surveyStep + 1);
-      setSelectedAnswer(null);
-    } else {
-      // Completed survey!
-      updateCoinsAndXp(50, 10, 'Survey', 'Finished Micro-Survey');
-      sound.playSuccess();
-      setActiveModal(null);
-      addNotification('Survey Completed!', 'Earned +50 SP!', 'success');
-      // Reset
-      setSurveyStep(1);
-      setSelectedAnswer(null);
+  // Claim a referral reward when a referred friend reaches 20 ads
+  const claimReferralReward = (refId: string) => {
+    const currentWithdrawalRefs = stats.referralsForCurrentWithdrawal || 0;
+    if (currentWithdrawalRefs >= 3) {
+      sound.playError();
+      addNotification(
+        'Withdrawal Cap Reached',
+        'You have reached the maximum 3 referral rewards for this withdrawal cycle. Complete a withdrawal to reset!',
+        'info'
+      );
+      return;
     }
+
+    const currentList = stats.referralsList || [];
+    const target = currentList.find(r => r.id === refId);
+    if (!target) return;
+
+    if (target.adsWatched < 20) {
+      sound.playError();
+      addNotification('Not Eligible Yet', `${target.name} has only watched ${target.adsWatched}/20 ads so far!`, 'info');
+      return;
+    }
+
+    if (target.rewardClaimed) {
+      sound.playSuccess();
+      addNotification('Already Claimed', 'Reward for this referral has already been claimed!', 'info');
+      return;
+    }
+
+    const updatedList = currentList.map(r => r.id === refId ? { ...r, rewardClaimed: true } : r);
+    const nextWithdrawalCount = currentWithdrawalRefs + 1;
+
+    sound.playSuccess();
+    updateCoinsAndXp(100, 15, 'Daily Check-in', `Referral Reward: ${target.name}`);
+    updateStatsDirectly({
+      referralsList: updatedList,
+      referralsForCurrentWithdrawal: nextWithdrawalCount,
+      referrals: (stats.referrals || 0) + 1
+    });
+
+    addNotification('🏆 Referral Bonus Claimed!', `Earned +100 SP! (${nextWithdrawalCount}/3 referrals claimed for this withdrawal)`, 'success');
+  };
+
+  // Simulate friend watching ads (for demonstration and testing)
+  const simulateFriendAds = (refId: string) => {
+    sound.playSlap();
+    const currentList = stats.referralsList || [];
+    const updatedList = currentList.map(r => {
+      if (r.id === refId) {
+        const nextAds = Math.min(20, r.adsWatched + 5);
+        if (nextAds === 20 && r.adsWatched < 20) {
+          addNotification('🎉 Friend Reached 20 Ads!', `${r.name} watched 20 ads! Both of you qualify for +100 SP!`, 'success');
+        }
+        return { ...r, adsWatched: nextAds };
+      }
+      return r;
+    });
+
+    updateStatsDirectly({ referralsList: updatedList });
+  };
+
+  // Invite new friend
+  const addNewReferral = () => {
+    sound.playSuccess();
+    const names = ['Jordan T.', 'Emily R.', 'Michael B.', 'Jessica W.', 'Chris P.'];
+    const randomName = names[Math.floor(Math.random() * names.length)] + ' #' + Math.floor(Math.random() * 900 + 100);
+    const newRef = {
+      id: 'ref-' + Date.now(),
+      name: randomName,
+      adsWatched: 0,
+      rewardClaimed: false,
+      joinedAt: 'Just now'
+    };
+
+    const updatedList = [newRef, ...(stats.referralsList || [])];
+    updateStatsDirectly({
+      referralsList: updatedList
+    });
+
+    addNotification('Friend Invited!', `${randomName} joined using your referral link!`, 'success');
+  };
+
+  // Input referee code
+  const applyReferralCode = () => {
+    if (!inputRefCode.trim()) return;
+    sound.playSuccess();
+    updateStatsDirectly({
+      referredByCode: inputRefCode.trim().toUpperCase()
+    });
+    addNotification(
+      'Referral Code Applied!',
+      `Entered code ${inputRefCode.trim().toUpperCase()}. Watch your first 20 ads to get +100 SP bonus!`,
+      'success'
+    );
+    setInputRefCode('');
   };
 
   // Handle Copy Referral
   const copyReferral = () => {
-    navigator.clipboard.writeText('https://slapearn.app/ref/' + stats.coins);
+    navigator.clipboard.writeText('https://slapearn.app/ref/SLAP-' + stats.coins);
     setIsCopied(true);
     sound.playSuccess();
-    addNotification('Link Copied!', '+100 SP Referral Bonus Added!', 'success');
-    updateCoinsAndXp(100, 5, 'Offerwall', 'Invite Link Copy Bonus');
+    addNotification('Link Copied!', 'Share link with friends to earn 100 SP once they watch 20 ads!', 'success');
     setTimeout(() => setIsCopied(false), 2000);
   };
 
@@ -317,15 +818,15 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
           </button>
         </div>
 
-        {/* TASK 3: Complete a survey */}
+        {/* TASK 3: Offerwalls and Surveys */}
         <div className="bg-white rounded-[24px] border-4 border-slate-900 p-3.5 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between">
           <div className="flex items-center">
             <div className="w-14 h-14 bg-[#4965FF] border-4 border-slate-900 rounded-[20px] flex items-center justify-center shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)]">
               <ClipboardList className="w-7 h-7 text-white stroke-[2.5px]" />
             </div>
             <div className="flex flex-col ml-4">
-              <span className="text-slate-950 font-black text-[15px] sm:text-[16px] leading-tight">Complete a survey</span>
-              <span className="text-slate-400 font-black text-[13px] mt-0.5">+50 SP</span>
+              <span className="text-slate-950 font-black text-[15px] sm:text-[16px] leading-tight">Offerwalls and Surveys</span>
+              <span className="text-slate-400 font-black text-[13px] mt-0.5">Earn 1000+ SP</span>
             </div>
           </div>
 
@@ -377,16 +878,24 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
               initial={{ scale: 0.9, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 30 }}
-              className="bg-[#FDFBF2] border-4 border-slate-900 rounded-[32px] p-6 max-w-sm w-full relative shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] z-10 text-slate-900"
+              className={`bg-[#FDFBF2] border-4 border-slate-900 rounded-[32px] p-5 w-full relative shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] z-10 text-slate-900 max-h-[90vh] overflow-y-auto ${
+                activeModal === 'survey' ? 'max-w-md' : 'max-w-sm'
+              }`}
             >
               
               {/* Close Button */}
-              {!isAdPlaying && !isSpinning && (
+              {!isAdPlaying && !isSpinning && !offerCompleting && (
                 <button 
-                  onClick={() => setActiveModal(null)}
-                  className="absolute top-4 right-4 w-9 h-9 bg-white border-2 border-slate-900 rounded-full flex items-center justify-center hover:bg-rose-50 transition-colors shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]"
+                  onClick={() => {
+                    setActiveModal(null);
+                    setSelectedOfferwall(null);
+                    setActiveOfferPrompt(null);
+                    setOfferCompleting(false);
+                    setOfferCompletedSuccess(false);
+                  }}
+                  className="absolute top-4 right-4 w-8 h-8 bg-white border-2 border-slate-900 rounded-full flex items-center justify-center hover:bg-rose-50 transition-colors shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] z-20 cursor-pointer"
                 >
-                  <X className="w-5 h-5 text-slate-900" />
+                  <X className="w-4 h-4 text-slate-900" />
                 </button>
               )}
 
@@ -531,14 +1040,14 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                     {/* Wheel Center Peg Button */}
                     <button
                       onClick={startSpin}
-                      disabled={isSpinning || isWheelOnCooldown}
-                      className="absolute w-16 h-16 bg-[#FFFDF6] border-4 border-slate-950 rounded-full flex flex-col items-center justify-center font-black text-slate-950 hover:bg-[#FFEED1] z-20 shadow-[0_4px_0_0_#0f172a] hover:shadow-[0_2px_0_0_#0f172a] active:shadow-none hover:translate-y-[2px] active:translate-y-[4px] disabled:translate-y-0 disabled:shadow-[0_4px_0_0_#0f172a] disabled:opacity-80 active:scale-95 transition-all text-center leading-none"
+                      disabled={isSpinning || (isWheelOnCooldown && !hasFreeSpins)}
+                      className="absolute w-16 h-16 bg-[#FFFDF6] border-4 border-slate-950 rounded-full flex flex-col items-center justify-center font-black text-slate-950 hover:bg-[#FFEED1] z-20 shadow-[0_4px_0_0_#0f172a] hover:shadow-[0_2px_0_0_#0f172a] active:shadow-none hover:translate-y-[2px] active:translate-y-[4px] disabled:translate-y-0 disabled:shadow-[0_4px_0_0_#0f172a] disabled:opacity-80 active:scale-95 transition-all text-center leading-none cursor-pointer"
                     >
                       <span className="text-[11px] font-black tracking-tight text-slate-950">
-                        {isSpinning ? 'SPIN' : isWheelOnCooldown ? 'WAIT' : 'SPIN!'}
+                        {isSpinning ? 'SPIN' : (isWheelOnCooldown && !hasFreeSpins) ? 'WAIT' : 'SPIN!'}
                       </span>
-                      <span className="text-[9px] font-bold text-slate-400 mt-0.5">
-                        {isSpinning ? '...' : isWheelOnCooldown ? '🔒' : 'DAILY'}
+                      <span className="text-[9px] font-bold text-amber-600 mt-0.5">
+                        {isSpinning ? '...' : hasFreeSpins ? `${stats.freeSpins} Free` : isWheelOnCooldown ? '🔒' : 'DAILY'}
                       </span>
                     </button>
                   </div>
@@ -557,6 +1066,10 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                       >
                         🎉 You Won: {spinResult}!
                       </motion.div>
+                    ) : hasFreeSpins ? (
+                      <div className="bg-amber-100 border-3 border-slate-950 px-5 py-2 rounded-full font-black text-amber-900 text-xs shadow-[2px_2px_0px_0px_rgba(15,23,42,1)]">
+                        🎁 {stats.freeSpins} Free Title Reward Spin{stats.freeSpins! > 1 ? 's' : ''} Ready!
+                      </div>
                     ) : isWheelOnCooldown ? (
                       <div className="bg-[#FFE5EC] border-3 border-slate-950 px-5 py-2.5 rounded-full font-black text-[#FF2B6D] flex items-center gap-1.5 shadow-[2.5px_3px_0px_0px_rgba(15,23,42,1)] text-xs animate-bounce-slow">
                         <Clock className="w-4 h-4 text-[#FF2B6D]" />
@@ -569,126 +1082,781 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                 </div>
               )}
 
-              {/* 3. SURVEY MODAL */}
+              {/* 3. OFFERWALLS & SURVEYS PROMPT MODAL */}
               {activeModal === 'survey' && (
-                <div className="flex flex-col py-2">
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-xs font-black bg-[#4965FF] text-white px-3 py-1 rounded-full">
-                      Step {surveyStep} of 3
-                    </span>
-                    <span className="text-xs font-bold text-slate-400">Reward: +50 SP</span>
+                <div className="flex flex-col py-1 text-slate-900">
+                  {/* Top Header */}
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <div className="w-10 h-10 bg-[#4965FF] rounded-2xl border-3 border-slate-900 flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] shrink-0">
+                      <ClipboardList className="w-5 h-5 text-white stroke-[2.5px]" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-950 tracking-tight leading-none">
+                        Offerwalls & Surveys
+                      </h3>
+                      <span className="text-[11px] font-bold text-slate-500 mt-1 block">
+                        Complete partner offers & surveys to earn <strong className="text-[#4965FF] font-black">1,000+ SP</strong>!
+                      </span>
+                    </div>
                   </div>
 
-                  {surveyStep === 1 && (
-                    <div>
-                      <h4 className="text-lg font-black text-slate-950 leading-tight">
-                        How did you find SlapEarn?
-                      </h4>
-                      <div className="flex flex-col gap-2.5 mt-4">
-                        {['Friend invitation', 'Social media (X, Telegram)', 'Search engines', 'Other slappers'].map((ans) => (
-                          <button
-                            key={ans}
-                            onClick={() => setSelectedAnswer(ans)}
-                            className={`w-full text-left font-bold text-sm px-4 py-3 rounded-xl border-3 border-slate-900 transition-all ${
-                              selectedAnswer === ans ? 'bg-[#FDDF77] text-slate-950' : 'bg-white text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            {ans}
-                          </button>
-                        ))}
+                  {/* Network Request Security Proxy / VPN Warning Banner */}
+                  {proxyStatus.isProxyDetected ? (
+                    <div className="bg-rose-950 text-white border-3 border-rose-500 rounded-2xl p-3.5 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] mb-3 flex flex-col gap-2">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center text-rose-400 shrink-0">
+                          <ShieldAlert className="w-4 h-4 stroke-[2.5px] animate-bounce" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="font-black text-xs uppercase tracking-tight text-white">Offerwalls & Surveys Paused</h4>
+                            <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase">VPN / Proxy Active</span>
+                          </div>
+                          <p className="text-[10px] text-rose-200 font-medium leading-tight mt-0.5">
+                            Network request inspector flagged public proxy or VPN headers (<code className="font-mono text-amber-300">{proxyStatus.vpnType || 'X-Forwarded-For anomaly'}</code>). Tasks remain paused to prevent anti-fraud flags.
+                          </p>
+                        </div>
                       </div>
+
+                      <div className="bg-slate-900/90 border border-rose-500/30 rounded-xl p-2 text-[10px] text-slate-300 font-mono flex flex-col gap-0.5">
+                        <div className="flex justify-between items-center text-[9px] text-rose-300 font-extrabold uppercase">
+                          <span>Detected Reason:</span>
+                          <span className="text-amber-300">{proxyStatus.ip || 'Proxy IP'}</span>
+                        </div>
+                        <div className="text-slate-300 font-sans text-[10px]">
+                          {proxyStatus.reason}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <button
+                          onClick={handleRecheckProxy}
+                          disabled={isRecheckingProxy}
+                          className="flex-1 py-1.5 bg-[#FFD043] hover:bg-yellow-400 text-slate-950 font-black text-xs rounded-xl border-2 border-slate-950 shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <RotateCw className={`w-3.5 h-3.5 stroke-[2.5px] ${isRecheckingProxy ? 'animate-spin' : ''}`} />
+                          <span>{isRecheckingProxy ? 'Checking IP...' : 'Re-Check Connection 🔄'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => proxyGuard.clearSecurityAlert()}
+                          className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-extrabold text-[9px] rounded-xl border border-slate-700 uppercase cursor-pointer shrink-0"
+                          title="Dev override"
+                        >
+                          Dev Clear
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl px-3 py-1.5 mb-3 flex items-center justify-between shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                      <div className="flex items-center gap-2 text-[11px] font-black text-emerald-950">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 stroke-[2.5px]" />
+                        <span>Network Connection Verified Clean (No Proxy/VPN)</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          sound.playSlap();
+                          proxyGuard.simulateVpnDetection();
+                          addNotification('VPN Test Simulated', 'Proxy / VPN header anomaly triggered for testing!', 'info');
+                        }}
+                        className="text-[9px] font-bold text-slate-500 hover:text-slate-800 underline uppercase"
+                      >
+                        Test VPN Flag
+                      </button>
                     </div>
                   )}
 
-                  {surveyStep === 2 && (
+                  {/* Mode Selector Tabs */}
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl border-2 border-slate-900 mb-3 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+                    <button
+                      onClick={() => {
+                        sound.playSlap();
+                        setSurveyTab('offerwalls');
+                        setSelectedOfferwall(null);
+                        setActiveOfferPrompt(null);
+                      }}
+                      className={`py-1.5 text-xs font-black rounded-xl border-2 transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                        surveyTab === 'offerwalls'
+                          ? 'bg-[#4965FF] text-white border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
+                          : 'border-transparent text-slate-600 hover:text-slate-950'
+                      }`}
+                    >
+                      <span>🔥 Offerwalls</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        sound.playSlap();
+                        setSurveyTab('profile_survey');
+                        setSelectedOfferwall(null);
+                        setActiveOfferPrompt(null);
+                      }}
+                      className={`py-1.5 text-xs font-black rounded-xl border-2 transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                        surveyTab === 'profile_survey'
+                          ? 'bg-[#00D09E] text-slate-950 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
+                          : 'border-transparent text-slate-600 hover:text-slate-950'
+                      }`}
+                    >
+                      <span>
+                        📋 Survey Profile {stats.surveyProfile?.completedOnce ? '✓' : '(+500 SP)'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* TAB 1: OFFERWALL PARTNERS */}
+                  {surveyTab === 'offerwalls' && (
                     <div>
-                      <h4 className="text-lg font-black text-slate-950 leading-tight">
-                        What features do you enjoy most?
-                      </h4>
-                      <div className="flex flex-col gap-2.5 mt-4">
-                        {['Daily check-in bonuses', 'Cute Neko girl mascot', 'Tapping to compete & earn', 'Instant mobile checkouts'].map((ans) => (
+                      {/* Active Offer Interactive Completion Prompt Overlay */}
+                      {activeOfferPrompt ? (
+                        <div className="bg-white border-3 border-slate-900 rounded-2xl p-4 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] flex flex-col items-center text-center">
+                          <span className="text-[10px] font-black text-[#4965FF] uppercase tracking-widest bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full mb-1.5">
+                            {activeOfferPrompt.type} • {activeOfferPrompt.time}
+                          </span>
+                          
+                          <h4 className="text-base font-black text-slate-950 leading-tight mb-1">
+                            {activeOfferPrompt.title}
+                          </h4>
+                          
+                          <div className="inline-flex items-center gap-1 text-emerald-600 font-mono font-black text-sm bg-emerald-50 border border-emerald-300 px-3 py-1 rounded-full my-2">
+                            <Sparkles className="w-4 h-4 text-emerald-500" />
+                            <span>+{activeOfferPrompt.rewardSp.toLocaleString()} SP Reward</span>
+                          </div>
+
+                          <p className="text-slate-500 text-xs font-bold leading-normal mb-3">
+                            {activeOfferPrompt.description}
+                          </p>
+
+                          {offerCompleting ? (
+                            <div className="w-full bg-slate-50 border-2 border-slate-900 p-3 rounded-xl">
+                              <div className="flex justify-between items-center text-[11px] font-black text-slate-800 mb-1.5">
+                                <span className="flex items-center gap-1">
+                                  <RotateCw className="w-3.5 h-3.5 text-[#4965FF] animate-spin" />
+                                  <span>
+                                    {offerProgress < 30 ? 'Connecting panel...' : offerProgress < 75 ? 'Analyzing responses...' : 'Verifying & granting reward...'}
+                                  </span>
+                                </span>
+                                <span className="font-mono text-[#4965FF]">{offerProgress}%</span>
+                              </div>
+
+                              <div className="w-full bg-slate-200 h-3 rounded-full border-2 border-slate-900 overflow-hidden">
+                                <div
+                                  className="bg-gradient-to-r from-[#4965FF] via-indigo-500 to-emerald-400 h-full transition-all duration-300"
+                                  style={{ width: `${offerProgress}%` }}
+                                />
+                              </div>
+                            </div>
+                          ) : offerCompletedSuccess ? (
+                            <div className="w-full bg-emerald-50 border-2 border-emerald-500 p-3 rounded-xl flex flex-col items-center text-emerald-900">
+                              <CheckCircle2 className="w-8 h-8 text-emerald-600 mb-1" />
+                              <span className="font-black text-sm">Offer Successfully Completed!</span>
+                              <span className="text-xs font-bold text-emerald-700 mt-0.5">
+                                +{activeOfferPrompt.rewardSp.toLocaleString()} SP Credited to Balance
+                              </span>
+
+                              <button
+                                onClick={() => {
+                                  sound.playSuccess();
+                                  setActiveOfferPrompt(null);
+                                  setOfferCompletedSuccess(false);
+                                }}
+                                className="mt-3 w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer"
+                              >
+                                Claim More Offers & SP
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="w-full flex gap-2">
+                              <button
+                                onClick={() => setActiveOfferPrompt(null)}
+                                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs rounded-xl border-2 border-slate-900 transition-all cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => startOfferCompletion(activeOfferPrompt)}
+                                className="flex-1 py-2.5 bg-[#4965FF] hover:bg-indigo-600 text-white font-black text-xs rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <span>Start Offer</span>
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : selectedOfferwall ? (
+                        /* Partner Specific Offers Sub-View */
+                        <div className="flex flex-col gap-2">
                           <button
-                            key={ans}
-                            onClick={() => setSelectedAnswer(ans)}
-                            className={`w-full text-left font-bold text-sm px-4 py-3 rounded-xl border-3 border-slate-900 transition-all ${
-                              selectedAnswer === ans ? 'bg-[#FDDF77] text-slate-950' : 'bg-white text-slate-700 hover:bg-slate-50'
-                            }`}
+                            onClick={() => {
+                              sound.playSlap();
+                              setSelectedOfferwall(null);
+                            }}
+                            className="text-xs font-extrabold text-slate-600 hover:text-slate-900 flex items-center gap-1 self-start cursor-pointer mb-1"
                           >
-                            {ans}
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                            <span>Back to All Offerwalls</span>
                           </button>
-                        ))}
-                      </div>
+
+                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">{selectedOfferwall.icon}</span>
+                              <div>
+                                <h4 className="font-black text-sm text-slate-950 leading-none">
+                                  {selectedOfferwall.name}
+                                </h4>
+                                <span className="text-[10px] font-bold text-slate-500 mt-0.5 block">
+                                  {selectedOfferwall.description}
+                                </span>
+                              </div>
+                            </div>
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border border-slate-900 ${selectedOfferwall.badgeColor}`}>
+                              {selectedOfferwall.badge}
+                            </span>
+                          </div>
+
+                          <span className="text-[11px] font-black uppercase text-slate-600 tracking-wider mt-1 block">
+                            Available Surveys & Offers ({selectedOfferwall.offers.length})
+                          </span>
+
+                          <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto pr-0.5">
+                            {selectedOfferwall.offers.map((offer) => (
+                              <div
+                                key={offer.id}
+                                className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between hover:bg-indigo-50/50 transition-all"
+                              >
+                                <div className="flex-1 pr-2">
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    <span className="text-[9px] font-black text-indigo-700 bg-indigo-100 border border-indigo-200 px-1.5 py-0.2 rounded">
+                                      {offer.type}
+                                    </span>
+                                    <span className="text-[9px] font-bold text-slate-400 flex items-center gap-0.5">
+                                      <Clock className="w-2.5 h-2.5" /> {offer.time}
+                                    </span>
+                                  </div>
+                                  <span className="text-xs font-black text-slate-950 block leading-tight">
+                                    {offer.title}
+                                  </span>
+                                </div>
+
+                                <button
+                                  onClick={() => startOfferCompletion(offer)}
+                                  className="py-1.5 px-3 bg-[#00D09E] hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl border-2 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all shrink-0 cursor-pointer"
+                                >
+                                  +{offer.rewardSp.toLocaleString()} SP
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        /* All Offerwall Partner Cards Grid */
+                        <div className="flex flex-col gap-2">
+                          <span className="text-[11px] font-black uppercase text-slate-600 tracking-wider">
+                            Choose Partner Panel
+                          </span>
+
+                          <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto pr-0.5">
+                            {OFFERWALL_PARTNERS.map((partner) => (
+                              <div
+                                key={partner.id}
+                                onClick={() => {
+                                  sound.playSlap();
+                                  setSelectedOfferwall(partner);
+                                }}
+                                className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between hover:bg-[#FFEED1]/40 transition-all cursor-pointer group"
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-9 h-9 bg-slate-100 border-2 border-slate-900 rounded-xl flex items-center justify-center text-lg shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] shrink-0">
+                                    {partner.icon}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <h4 className="font-black text-xs text-slate-950 group-hover:text-[#4965FF] transition-colors">
+                                        {partner.name}
+                                      </h4>
+                                      <span className={`text-[8px] font-black px-1.5 py-0.2 rounded-md ${partner.badgeColor}`}>
+                                        {partner.badge}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-500 block leading-tight mt-0.5">
+                                      Avg: <strong className="text-slate-800 font-extrabold">{partner.avgReward}</strong> • {partner.estTime}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1 text-[#4965FF] font-black text-xs group-hover:translate-x-0.5 transition-transform">
+                                  <span>Offers</span>
+                                  <ChevronRight className="w-4 h-4 stroke-[3px]" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {surveyStep === 3 && (
-                    <div>
-                      <h4 className="text-lg font-black text-slate-950 leading-tight">
-                        Rate your experience with our Neko Girl mascot:
-                      </h4>
-                      <div className="flex flex-col gap-2.5 mt-4">
-                        {['Absolutely adorable! (10/10)', 'Very cute and responsive', 'Can be improved', 'No strong opinion'].map((ans) => (
-                          <button
-                            key={ans}
-                            onClick={() => setSelectedAnswer(ans)}
-                            className={`w-full text-left font-bold text-sm px-4 py-3 rounded-xl border-3 border-slate-900 transition-all ${
-                              selectedAnswer === ans ? 'bg-[#FDDF77] text-slate-950' : 'bg-white text-slate-700 hover:bg-slate-50'
+                  {/* TAB 2: SURVEY PROFILE */}
+                  {surveyTab === 'profile_survey' && (
+                    <div className="flex flex-col py-1 text-slate-900">
+                      {/* Profile Header & Completion Stats */}
+                      <div className="bg-[#EBF3FF] border-2 border-slate-900 rounded-2xl p-3 mb-3 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+                        <div className="flex justify-between items-center mb-1.5">
+                          <div className="flex items-center gap-1.5 text-xs font-black text-slate-950">
+                            <UserCheck className="w-4 h-4 text-[#4965FF]" />
+                            <span>Profile Completion: {calculateProfileCompletion()}%</span>
+                          </div>
+                          <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            {stats.surveyProfile?.completedOnce ? (
+                              <>
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> +500 SP Claimed
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3 h-3 text-emerald-600" /> +500 SP First Time
+                              </>
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-slate-200 h-2.5 rounded-full border border-slate-900 overflow-hidden mb-1.5">
+                          <div
+                            className="bg-gradient-to-r from-[#4965FF] to-[#00D09E] h-full transition-all duration-300"
+                            style={{ width: `${calculateProfileCompletion()}%` }}
+                          />
+                        </div>
+
+                        <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
+                          <span>Info shared securely with survey partners</span>
+                          <span className="font-mono text-slate-600">
+                            Updated: {stats.surveyProfile?.lastUpdated || 'Never'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Survey Eligibility Form Fields */}
+                      <div className="flex flex-col gap-3 max-h-[360px] overflow-y-auto pr-1">
+                        
+                        {/* 1. Date of Birth (Locked once saved) */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="text-xs font-black text-slate-950 flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-[#4965FF]" /> Date of Birth
+                            </label>
+                            {profileDobLocked && (
+                              <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-400 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                <Lock className="w-2.5 h-2.5" /> Locked
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="date"
+                            value={profileDob}
+                            disabled={profileDobLocked}
+                            onChange={(e) => setProfileDob(e.target.value)}
+                            className={`w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 ${
+                              profileDobLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'
+                            }`}
+                          />
+                        </div>
+
+                        {/* 2. Gender */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                          <label className="text-xs font-black text-slate-950 block mb-1">Gender</label>
+                          <select
+                            value={profileGender}
+                            onChange={(e) => setProfileGender(e.target.value)}
+                            className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
+                          >
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Non-Binary">Non-Binary</option>
+                            <option value="Prefer not to say">Prefer not to say</option>
+                          </select>
+                        </div>
+
+                        {/* 3. Country (Locked once saved) */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="text-xs font-black text-slate-950 flex items-center gap-1">
+                              <Globe className="w-3.5 h-3.5 text-[#4965FF]" /> Country
+                            </label>
+                            {profileCountryLocked && (
+                              <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-400 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                <Lock className="w-2.5 h-2.5" /> Locked
+                              </span>
+                            )}
+                          </div>
+                          <select
+                            value={profileCountry}
+                            disabled={profileCountryLocked}
+                            onChange={(e) => setProfileCountry(e.target.value)}
+                            className={`w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 ${
+                              profileCountryLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900 cursor-pointer'
                             }`}
                           >
-                            {ans}
-                          </button>
-                        ))}
+                            <option value="United States">United States</option>
+                            <option value="United Kingdom">United Kingdom</option>
+                            <option value="Canada">Canada</option>
+                            <option value="Australia">Australia</option>
+                            <option value="Germany">Germany</option>
+                            <option value="France">France</option>
+                            <option value="Japan">Japan</option>
+                            <option value="Nigeria">Nigeria</option>
+                            <option value="Philippines">Philippines</option>
+                            <option value="India">India</option>
+                            <option value="Brazil">Brazil</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+
+                        {/* 4. State/Province & City/Town (2 column grid) */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                            <label className="text-[11px] font-black text-slate-950 block mb-1">State/Province</label>
+                            <input
+                              type="text"
+                              value={profileState}
+                              placeholder="e.g. California"
+                              onChange={(e) => setProfileState(e.target.value)}
+                              className="w-full text-xs font-bold px-2.5 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900"
+                            />
+                          </div>
+                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                            <label className="text-[11px] font-black text-slate-950 block mb-1">City/Town</label>
+                            <input
+                              type="text"
+                              value={profileCity}
+                              placeholder="e.g. Los Angeles"
+                              onChange={(e) => setProfileCity(e.target.value)}
+                              className="w-full text-xs font-bold px-2.5 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900"
+                            />
+                          </div>
+                        </div>
+
+                        {/* 5. ZIP/Postal Code (Locked once saved) */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="text-xs font-black text-slate-950 flex items-center gap-1">
+                              <MapPin className="w-3.5 h-3.5 text-[#4965FF]" /> ZIP / Postal Code
+                            </label>
+                            {profileZipCodeLocked && (
+                              <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-400 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                <Lock className="w-2.5 h-2.5" /> Locked
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            value={profileZipCode}
+                            disabled={profileZipCodeLocked}
+                            placeholder="e.g. 90210"
+                            onChange={(e) => setProfileZipCode(e.target.value)}
+                            className={`w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 ${
+                              profileZipCodeLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'
+                            }`}
+                          />
+                        </div>
+
+                        {/* 6. Highest Education Level */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                          <label className="text-xs font-black text-slate-950 flex items-center gap-1 mb-1">
+                            <GraduationCap className="w-3.5 h-3.5 text-[#4965FF]" /> Highest Education Level
+                          </label>
+                          <select
+                            value={profileEducation}
+                            onChange={(e) => setProfileEducation(e.target.value)}
+                            className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
+                          >
+                            <option value="High School">High School / GED</option>
+                            <option value="Some College">Some College</option>
+                            <option value="Associate Degree">Associate Degree</option>
+                            <option value="Bachelor's Degree">Bachelor's Degree</option>
+                            <option value="Master's Degree">Master's Degree</option>
+                            <option value="Doctorate / Ph.D.">Doctorate / Ph.D.</option>
+                            <option value="Trade / Vocational">Trade / Vocational</option>
+                          </select>
+                        </div>
+
+                        {/* 7. Employment Status & Occupation */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-2">
+                          <div>
+                            <label className="text-xs font-black text-slate-950 flex items-center gap-1 mb-1">
+                              <Briefcase className="w-3.5 h-3.5 text-[#4965FF]" /> Employment Status
+                            </label>
+                            <select
+                              value={profileEmployment}
+                              onChange={(e) => setProfileEmployment(e.target.value)}
+                              className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
+                            >
+                              <option value="Full-Time">Employed Full-Time</option>
+                              <option value="Part-Time">Employed Part-Time</option>
+                              <option value="Self-Employed / Freelancer">Self-Employed / Freelancer</option>
+                              <option value="Student">Student</option>
+                              <option value="Unemployed">Unemployed</option>
+                              <option value="Retired">Retired</option>
+                              <option value="Homemaker">Homemaker</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-black text-slate-950 block mb-1">Occupation Industry</label>
+                            <select
+                              value={profileOccupation}
+                              onChange={(e) => setProfileOccupation(e.target.value)}
+                              className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
+                            >
+                              <option value="Technology & IT">Technology & IT</option>
+                              <option value="Healthcare & Medical">Healthcare & Medical</option>
+                              <option value="Finance & Business">Finance & Business</option>
+                              <option value="Education">Education</option>
+                              <option value="Creative & Design">Creative & Design</option>
+                              <option value="Sales & Marketing">Sales & Marketing</option>
+                              <option value="Engineering">Engineering</option>
+                              <option value="Student / Academic">Student / Academic</option>
+                              <option value="Other">Other</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* 8. Marital Status & Children */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                            <label className="text-[11px] font-black text-slate-950 flex items-center gap-1 mb-1">
+                              <Heart className="w-3 h-3 text-rose-500" /> Marital Status
+                            </label>
+                            <select
+                              value={profileMaritalStatus}
+                              onChange={(e) => setProfileMaritalStatus(e.target.value)}
+                              className="w-full text-xs font-bold px-2 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
+                            >
+                              <option value="Single">Single</option>
+                              <option value="Married">Married</option>
+                              <option value="In a relationship">In a relationship</option>
+                              <option value="Divorced">Divorced</option>
+                              <option value="Widowed">Widowed</option>
+                            </select>
+                          </div>
+
+                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                            <label className="text-[11px] font-black text-slate-950 block mb-1">Children</label>
+                            <select
+                              value={profileChildren}
+                              onChange={(e) => setProfileChildren(e.target.value)}
+                              className="w-full text-xs font-bold px-2 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
+                            >
+                              <option value="None">None</option>
+                              <option value="1 Child">1 Child</option>
+                              <option value="2 Children">2 Children</option>
+                              <option value="3 Children">3 Children</option>
+                              <option value="4+ Children">4+ Children</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* 9. Household Income Range */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                          <label className="text-xs font-black text-slate-950 flex items-center gap-1 mb-1">
+                            <DollarSign className="w-3.5 h-3.5 text-emerald-600" /> Household Income Range
+                          </label>
+                          <select
+                            value={profileIncome}
+                            onChange={(e) => setProfileIncome(e.target.value)}
+                            className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
+                          >
+                            <option value="Under $25,000">Under $25,000</option>
+                            <option value="$25,000 - $49,999">$25,000 - $49,999</option>
+                            <option value="$50,000 - $74,999">$50,000 - $74,999</option>
+                            <option value="$75,000 - $99,999">$75,000 - $99,999</option>
+                            <option value="$100,000 - $149,999">$100,000 - $149,999</option>
+                            <option value="$150,000+">$150,000+</option>
+                          </select>
+                        </div>
+
+                        {/* 10. Languages Spoken */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                          <label className="text-xs font-black text-slate-950 block mb-1.5">Languages Spoken</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {['English', 'Spanish', 'French', 'German', 'Mandarin', 'Japanese', 'Tagalog', 'Arabic', 'Portuguese', 'Hindi'].map((lang) => {
+                              const isSelected = profileLanguages.includes(lang);
+                              return (
+                                <button
+                                  key={lang}
+                                  type="button"
+                                  onClick={() => toggleLanguage(lang)}
+                                  className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg border transition-all cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-[#4965FF] text-white border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
+                                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {lang} {isSelected && '✓'}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* 11. Interests (Select Multiple) */}
+                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                          <label className="text-xs font-black text-slate-950 block mb-1.5">Interests (Select multiple)</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {['Technology', 'Gaming', 'Finance & Crypto', 'Fitness & Health', 'Travel', 'Fashion & Beauty', 'Entertainment & Movies', 'Food & Dining', 'Automotive', 'Music'].map((item) => {
+                              const isSelected = profileInterests.includes(item);
+                              return (
+                                <button
+                                  key={item}
+                                  type="button"
+                                  onClick={() => toggleInterest(item)}
+                                  className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg border transition-all cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-[#FFD043] text-slate-950 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
+                                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {item} {isSelected && '✓'}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
+
+                      {/* Save Changes Button */}
+                      <button
+                        onClick={handleSaveSurveyProfile}
+                        className="mt-3 w-full font-black text-xs py-3 rounded-xl border-3 border-slate-900 bg-[#00D09E] hover:bg-emerald-400 text-slate-950 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <Save className="w-4 h-4 stroke-[2.5px]" />
+                        <span>
+                          {stats.surveyProfile?.completedOnce
+                            ? 'Save Profile Changes'
+                            : 'Save Profile & Claim +500 SP Reward'}
+                        </span>
+                      </button>
                     </div>
                   )}
-
-                  {/* Next Step Button */}
-                  <button
-                    onClick={submitSurveyStep}
-                    disabled={!selectedAnswer}
-                    className={`mt-6 w-full font-black text-sm py-3.5 rounded-2xl border-4 border-slate-900 text-slate-950 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 ${
-                      selectedAnswer ? 'bg-[#FF3B77] text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none border-slate-300'
-                    }`}
-                  >
-                    {surveyStep === 3 ? 'Finish Survey' : 'Next Question'}
-                  </button>
                 </div>
               )}
 
-              {/* 4. REFERRAL MODAL */}
+              {/* 4. COMPACT REFERRAL PROMPT MODAL */}
               {activeModal === 'referral' && (
-                <div className="flex flex-col items-center py-2 text-center">
-                  <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center border-3 border-slate-900 mb-4 shadow-[2px_2px_0px_0px_#000]">
-                    <Users className="w-8 h-8 text-[#A855F7]" />
-                  </div>
-                  <h3 className="text-2xl font-black text-slate-950 tracking-tight">Refer & Earn</h3>
-                  <p className="text-slate-500 font-bold text-xs mt-1 px-4 leading-relaxed">
-                    Share your unique link with friends. You both get <span className="text-[#FF3B77] font-black">+100 SP</span> when they join!
-                  </p>
-
-                  {/* Mock invite stats */}
-                  <div className="grid grid-cols-2 gap-3 w-full mt-5 bg-white border-3 border-slate-900 rounded-2xl p-3">
-                    <div className="flex flex-col border-r-2 border-slate-100">
-                      <span className="text-xs text-slate-400 font-bold">Total Invites</span>
-                      <span className="text-xl font-black text-slate-900 mt-0.5">0</span>
+                <div className="flex flex-col items-center py-0.5 text-center text-slate-900">
+                  {/* Header Title */}
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-8 h-8 bg-purple-100 rounded-xl flex items-center justify-center border-2 border-slate-900 shadow-[1px_1px_0px_0px_#000]">
+                      <Users className="w-4 h-4 text-[#A855F7]" />
                     </div>
-                    <div className="flex flex-col">
-                      <span className="text-xs text-slate-400 font-bold">SP Earned</span>
-                      <span className="text-xl font-black text-[#FF3B77] mt-0.5">0 SP</span>
-                    </div>
+                    <h3 className="text-lg font-black text-slate-950 tracking-tight">Refer & Earn 100 SP</h3>
                   </div>
 
-                  {/* Copy link box */}
-                  <div className="w-full mt-5">
-                    <div className="bg-slate-100 text-xs font-mono py-2.5 px-3 rounded-lg text-slate-600 border border-slate-200 select-all truncate mb-3">
-                      https://slapearn.app/ref/{stats.coins}
+                  {/* Compact Streamlined Rule & Cycle Banner */}
+                  <div className="w-full bg-[#F3E8FF] border-2 border-slate-900 rounded-xl p-2 mb-2 text-left shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1 text-[#7E22CE] font-black text-[10px] uppercase tracking-wide">
+                        <Sparkles className="w-3 h-3 text-[#A855F7]" />
+                        <span>Rule: +100 SP Per Friend</span>
+                      </div>
+                      <p className="text-slate-800 font-bold text-[10px] leading-tight">
+                        When friend watches <span className="text-slate-950 font-black">20 ads</span>.
+                      </p>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="text-[9px] font-black text-[#A855F7] bg-white px-2 py-0.5 rounded-full border border-purple-300 block">
+                        {(stats.referralsForCurrentWithdrawal || 0)} / 3 Claimed
+                      </span>
+                      <span className="text-[8px] font-bold text-slate-500 block mt-0.5">Cycle Cap</span>
+                    </div>
+                  </div>
+
+                  {/* Compact Referred Friends Progress List */}
+                  <div className="w-full text-left mb-2">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-black text-slate-900 uppercase tracking-wider">
+                        Referred Friends ({(stats.referralsList || []).length})
+                      </span>
+                      <button
+                        onClick={addNewReferral}
+                        className="text-[10px] font-black text-[#A855F7] hover:underline flex items-center gap-0.5 cursor-pointer"
+                      >
+                        + Invite
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1 max-h-[90px] overflow-y-auto pr-1">
+                      {(stats.referralsList || []).length === 0 ? (
+                        <div className="text-center py-2 text-[10px] font-bold text-slate-400 bg-slate-50 border border-dashed border-slate-300 rounded-lg">
+                          No friends referred yet.
+                        </div>
+                      ) : (
+                        (stats.referralsList || []).map((ref) => {
+                          const is20Watched = ref.adsWatched >= 20;
+                          const isClaimed = ref.rewardClaimed;
+
+                          return (
+                            <div
+                              key={ref.id}
+                              className="bg-white border border-slate-900 rounded-lg p-1.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-5 h-5 rounded-full bg-purple-200 border border-slate-900 flex items-center justify-center font-black text-[9px] text-purple-900 shrink-0">
+                                  {ref.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <span className="font-black text-slate-900 text-[10px] block leading-none">
+                                    {ref.name}
+                                  </span>
+                                  <span className="text-[8px] text-slate-400 font-bold block mt-0.5">
+                                    Ads: {ref.adsWatched}/20
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Status / Claim Button */}
+                              {isClaimed ? (
+                                <span className="bg-emerald-100 border border-emerald-500 text-emerald-800 text-[8px] font-black px-1.5 py-0.2 rounded-full">
+                                  ✅ Claimed
+                                </span>
+                              ) : is20Watched ? (
+                                <button
+                                  onClick={() => claimReferralReward(ref.id)}
+                                  disabled={(stats.referralsForCurrentWithdrawal || 0) >= 3}
+                                  className={`text-[9px] font-black px-2 py-0.5 rounded-md border border-slate-900 active:scale-95 transition-all cursor-pointer ${
+                                    (stats.referralsForCurrentWithdrawal || 0) >= 3
+                                      ? 'bg-slate-200 text-slate-400 border-slate-400 shadow-none cursor-not-allowed'
+                                      : 'bg-[#FF3B77] text-white hover:bg-rose-600 animate-pulse'
+                                  }`}
+                                >
+                                  🎁 Claim 100 SP
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => simulateFriendAds(ref.id)}
+                                  className="text-[8px] font-black bg-amber-100 text-amber-900 border border-amber-400 px-1.5 py-0.2 rounded hover:bg-amber-200 active:scale-95 transition-all cursor-pointer"
+                                  title="Simulate friend watching ads"
+                                >
+                                  +5 Ads
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Compact Referral Code & Invitation Box */}
+                  <div className="w-full bg-slate-50 border border-slate-900 rounded-xl p-2 text-left">
+                    <div className="flex justify-between items-center text-[9px] font-black text-slate-700 mb-0.5">
+                      <span>YOUR REFERRAL CODE</span>
+                      <span className="text-[#A855F7] font-mono">{stats.myReferralCode || ('SLAP-' + stats.coins)}</span>
                     </div>
 
                     <button
                       onClick={copyReferral}
-                      className="w-full font-black text-sm py-3.5 rounded-2xl border-4 border-slate-900 bg-[#A855F7] text-white hover:bg-purple-600 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95"
+                      className="w-full font-black text-xs py-1.5 rounded-lg border-2 border-slate-900 bg-[#A855F7] text-white hover:bg-purple-600 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1 mt-1"
                     >
-                      {isCopied ? 'Copied Link!' : 'Copy Invitation Link'}
+                      {isCopied ? 'Copied Invitation Link!' : 'Copy Invitation Link'}
                     </button>
                   </div>
                 </div>
