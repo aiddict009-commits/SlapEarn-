@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { PlayCircle, RotateCw, ClipboardList, Users, Hand, X, Gift, Trophy, Sparkles, Clock, ArrowLeft, CheckCircle2, ChevronRight, ExternalLink, Flame, ShieldCheck, Zap, Star, Lock, Save, Calendar, MapPin, GraduationCap, Briefcase, Heart, DollarSign, Globe, UserCheck, ShieldAlert, AlertTriangle, WifiOff } from 'lucide-react';
-import { UserStats, Transaction } from '../types';
+import { PlayCircle, RotateCw, ClipboardList, Users, Hand, X, Gift, Trophy, Sparkles, Clock, ArrowLeft, CheckCircle2, ChevronRight, ExternalLink, Flame, ShieldCheck, Zap, Star, Lock, Save, Calendar, MapPin, GraduationCap, Briefcase, Heart, DollarSign, Globe, UserCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from '../types';
 import { sound } from '../utils/sound';
 import { proxyGuard, NetworkSecurityStatus } from '../utils/proxyGuard';
 
@@ -28,17 +28,77 @@ interface OfferwallPartner {
 
 const OFFERWALL_PARTNERS: OfferwallPartner[] = [
   {
-    id: 'cpx',
-    name: 'CPX Research',
-    badge: '🔥 HOT SURVEYS',
-    badgeColor: 'bg-rose-500 text-white',
-    icon: '📊',
-    description: 'High-paying daily market research & consumer opinion surveys.',
-    avgReward: '1,000 – 3,500 SP',
-    estTime: '5 – 12 mins',
+    id: 'mylead-opinion',
+    name: 'MyLead Opinion Survey',
+    badge: '⭐ HIGH-PAYING SURVEYS',
+    badgeColor: 'bg-amber-400 text-slate-950',
+    icon: '📝',
+    description: 'High-paying consumer opinion surveys, market research polls, and brand preference studies.',
+    avgReward: '850 – 3,200 SP',
+    estTime: '4 – 12 mins',
     offers: [
       {
-        id: 'cpx-1',
+        id: 'mylead-op-1',
+        title: 'Global Consumer Tech & Smart Devices Opinion 2026',
+        rewardSp: 1850,
+        time: '8 mins',
+        type: 'Market Opinion',
+        description: 'Complete the MyLead Opinion Survey regarding smartphones, wearables, and smart home gadgets.'
+      },
+      {
+        id: 'mylead-op-2',
+        title: 'Streaming Services & Digital Media Habits',
+        rewardSp: 1200,
+        time: '6 mins',
+        type: 'Media Survey',
+        description: 'Provide feedback on video streaming platforms, podcast preferences, and subscription services.'
+      },
+      {
+        id: 'mylead-op-3',
+        title: 'Automotive & Electric Vehicle Future Buyer Survey',
+        rewardSp: 2500,
+        time: '10 mins',
+        type: 'Industry Research',
+        description: 'Answer questions about electric vehicles, autonomous driving tech, and car ownership.'
+      },
+      {
+        id: 'mylead-op-4',
+        title: 'Fast Food & Daily Dining Preferences Study',
+        rewardSp: 950,
+        time: '4 mins',
+        type: 'Consumer Poll',
+        description: 'Quick MyLead Opinion survey on restaurant delivery apps and daily dining habits.'
+      },
+      {
+        id: 'mylead-op-5',
+        title: 'Travel, Hospitality & Airline Booking Experience',
+        rewardSp: 1600,
+        time: '7 mins',
+        type: 'Travel Survey',
+        description: 'Share your vacation planning routines, airline experiences, and hotel choices.'
+      }
+    ]
+  },
+  {
+    id: 'mylead',
+    name: 'MyLead Offerwall',
+    badge: '🔥 OFFICIAL OFFERWALL',
+    badgeColor: 'bg-emerald-500 text-slate-950',
+    icon: '🚀',
+    description: 'Exclusive app installs, high-paying surveys, and premium game tasks.',
+    avgReward: '1,200 – 5,000 SP',
+    estTime: '5 – 15 mins',
+    offers: [
+      {
+        id: 'mylead-1',
+        title: 'Play Realm of Heroes & Reach Town Hall Level 5',
+        rewardSp: 3500,
+        time: '15 mins',
+        type: 'Game Task',
+        description: 'Install the game via MyLead and build your kingdom to Level 5 town hall.'
+      },
+      {
+        id: 'mylead-2',
         title: 'Global Shopping & E-Commerce Preferences 2026',
         rewardSp: 1250,
         time: '8 mins',
@@ -46,112 +106,28 @@ const OFFERWALL_PARTNERS: OfferwallPartner[] = [
         description: 'Share your online shopping habits and brand preferences to earn 1,250 SP.'
       },
       {
-        id: 'cpx-2',
-        title: 'Tech & AI Software Daily Usage Study',
-        rewardSp: 1800,
-        time: '12 mins',
-        type: 'Tech Opinion',
-        description: 'Evaluate AI productivity tools and software you use daily.'
-      },
-      {
-        id: 'cpx-3',
-        title: 'Mobile Entertainment & Gaming Habits',
-        rewardSp: 1050,
-        time: '6 mins',
-        type: 'Entertainment',
-        description: 'Quick survey on streaming platforms and mobile gaming apps.'
-      }
-    ]
-  },
-  {
-    id: 'bitlabs',
-    name: 'BitLabs Offerwall',
-    badge: '🚀 HIGHEST PAY',
-    badgeColor: 'bg-amber-400 text-slate-950',
-    icon: '💎',
-    description: 'App installs, gaming milestones, and premium partner offers.',
-    avgReward: '1,500 – 5,000 SP',
-    estTime: '10 – 15 mins',
-    offers: [
-      {
-        id: 'bit-1',
-        title: 'Play Realm of Heroes & Reach Town Hall Level 5',
-        rewardSp: 3500,
-        time: '15 mins',
-        type: 'Game Task',
-        description: 'Install the game and build your kingdom to Level 5 town hall.'
-      },
-      {
-        id: 'bit-2',
+        id: 'mylead-3',
         title: 'Try FinTech Smart Wallet for 3 Days',
         rewardSp: 2400,
         time: '10 mins',
         type: 'App Trial',
-        description: 'Download the app, create a free account, and explore features.'
+        description: 'Download the app via MyLead, create a free account, and explore features.'
       },
       {
-        id: 'bit-3',
-        title: 'Complete Consumer Audio Habits Questionnaire',
-        rewardSp: 1200,
-        time: '7 mins',
-        type: 'Survey',
-        description: 'Answer questions about music, podcasts, and audio headphones.'
-      }
-    ]
-  },
-  {
-    id: 'tapresearch',
-    name: 'TapResearch',
-    badge: '⚡ INSTANT CREDIT',
-    badgeColor: 'bg-[#00D09E] text-slate-950',
-    icon: '🎯',
-    description: 'Fast, mobile-optimized micro-surveys with partial credit guarantee.',
-    avgReward: '800 – 1,800 SP',
-    estTime: '3 – 6 mins',
-    offers: [
-      {
-        id: 'tap-1',
-        title: 'Streaming Services & Music Video Habits',
-        rewardSp: 1100,
-        time: '5 mins',
-        type: 'Quick Poll',
-        description: 'Tell us which streaming services you watch most often.'
-      },
-      {
-        id: 'tap-2',
-        title: 'Snack & Beverage Brand Preference Pulse',
-        rewardSp: 850,
-        time: '4 mins',
-        type: 'Brand Survey',
-        description: 'Short 10-question survey regarding beverage purchasing decisions.'
-      }
-    ]
-  },
-  {
-    id: 'theoremreach',
-    name: 'TheoremReach',
-    badge: '🌟 DAILY BONUS',
-    badgeColor: 'bg-purple-600 text-white',
-    icon: '🌟',
-    description: 'Personalized opinion surveys matching your profile & interests.',
-    avgReward: '1,000 – 2,800 SP',
-    estTime: '7 – 14 mins',
-    offers: [
-      {
-        id: 'theo-1',
+        id: 'mylead-4',
         title: 'Digital Banking & Mobile Payments Survey',
-        rewardSp: 1450,
+        rewardSp: 1800,
         time: '9 mins',
         type: 'Finance Survey',
         description: 'Provide feedback on contactless payments and digital wallets.'
       },
       {
-        id: 'theo-2',
-        title: 'Travel & Vacation Destination Plans 2026',
+        id: 'mylead-5',
+        title: 'Tech & AI Software Daily Usage Study',
         rewardSp: 2100,
-        time: '11 mins',
-        type: 'Lifestyle',
-        description: 'Share your upcoming travel destinations and booking preferences.'
+        time: '12 mins',
+        type: 'Tech Opinion',
+        description: 'Evaluate AI productivity tools and software you use daily.'
       }
     ]
   }
@@ -162,9 +138,14 @@ interface EarnViewProps {
   updateCoinsAndXp: (coins: number, xp: number, category: Transaction['category'], title: string) => void;
   updateStatsDirectly: (newStats: Partial<UserStats>) => void;
   addNotification: (title: string, message: string, type: 'success' | 'info') => void;
+  economyConfig?: EconomyConfig;
 }
 
-export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly, addNotification }: EarnViewProps) {
+export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly, addNotification, economyConfig }: EarnViewProps) {
+  const config = economyConfig || DEFAULT_ECONOMY_CONFIG;
+  const spPerAd = config.spPerAd || 5;
+  const referralSpBonus = config.referralSpBonus || 100;
+  const doubleSpMultiplier = config.doubleSpEventActive ? 2 : 1;
   const [activeModal, setActiveModal] = useState<'ad' | 'wheel' | 'survey' | 'referral' | null>(null);
 
   // Video Ad states
@@ -496,17 +477,20 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
           totalAdsWatchedLifetime: nextLifetime
         };
 
+        const awardedAdSp = spPerAd * doubleSpMultiplier;
+        updateCoinsAndXp(awardedAdSp, 10, 'Ad', 'Watched Video Ad');
+
         // Check 20-ads milestone for referee reward
         if (nextLifetime >= 20 && !stats.referredByRewardClaimed && stats.referredByCode) {
           updateObj.referredByRewardClaimed = true;
-          updateCoinsAndXp(100, 15, 'Ad', '20-Ads Referee Reward');
+          updateCoinsAndXp(referralSpBonus, 15, 'Ad', '20-Ads Referee Reward');
           addNotification(
             '🎉 20 Ads Milestone Reached!',
-            'You watched your first 20 ads! You & your referrer both received +100 SP!',
+            `You watched your first 20 ads! You & your referrer both received +${referralSpBonus} SP!`,
             'success'
           );
         } else {
-          addNotification('Ad Completed!', '+3 slaps available!', 'success');
+          addNotification('Ad Completed!', `+3 slaps refilled & +${awardedAdSp} SP earned!`, 'success');
         }
 
         updateStatsDirectly(updateObj);
@@ -542,25 +526,27 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
       });
     }
 
-    // Let's divide into 6 segments:
-    // 0-60: +10 SP (Segment 0)
-    // 61-120: +5 slaps (Segment 1)
-    // 121-180: +20 slaps (Segment 2)
-    // 181-240: +15 slaps (Segment 3)
-    // 241-300: +25 slaps (Segment 4)
-    // 301-360: Try Again (Segment 5)
+    // 7 Lucky Wheel segments:
+    // Segment 0: 🎁 +5 SP
+    // Segment 1: ✋ +5 Slaps
+    // Segment 2: 🎁 +10 SP
+    // Segment 3: ✋ +15 Slaps
+    // Segment 4: ✋ +25 Slaps
+    // Segment 5: 😢 Try again
+    // Segment 6: 🎁 +100 SP (0.5% landing chance)
     const segments = [
-      { text: '+10 SP', action: () => updateCoinsAndXp(10, 2, 'Daily Check-in', 'Wheel SP Prize') },
-      { text: '+5 slaps', action: () => updateStatsDirectly({ slapsToday: Math.max(0, stats.slapsToday - 5) }) },
-      { text: '+20 slaps', action: () => updateStatsDirectly({ slapsToday: Math.max(0, stats.slapsToday - 20) }) },
-      { text: '+15 slaps', action: () => updateStatsDirectly({ slapsToday: Math.max(0, stats.slapsToday - 15) }) },
-      { text: '+25 slaps', action: () => updateStatsDirectly({ slapsToday: Math.max(0, stats.slapsToday - 25) }) },
-      { text: 'Try Again', action: () => {} }
+      { text: '🎁 +5 SP', action: () => updateCoinsAndXp(5, 1, 'Daily Check-in', 'Wheel SP Prize') },
+      { text: '✋ +5 Slaps', action: () => updateStatsDirectly({ slapsToday: Math.max(0, stats.slapsToday - 5) }) },
+      { text: '🎁 +10 SP', action: () => updateCoinsAndXp(10, 2, 'Daily Check-in', 'Wheel SP Prize') },
+      { text: '✋ +15 Slaps', action: () => updateStatsDirectly({ slapsToday: Math.max(0, stats.slapsToday - 15) }) },
+      { text: '✋ +25 Slaps', action: () => updateStatsDirectly({ slapsToday: Math.max(0, stats.slapsToday - 25) }) },
+      { text: '😢 Try again', action: () => {} },
+      { text: '🎁 +100 SP', action: () => updateCoinsAndXp(100, 20, 'Daily Check-in', 'Jackpot Wheel SP Prize') }
     ];
 
-    // True weighted randomization of land segments:
-    // +10 SP: 25% | +5 slaps: 25% | +20 slaps: 15% | +15 slaps: 15% | +25 slaps: 10% | Try Again: 10%
-    const weights = [0.25, 0.25, 0.15, 0.15, 0.10, 0.10];
+    // True weighted randomization of land segments (sums to 1.0):
+    // 🎁 +5 SP: 25% | ✋ +5 Slaps: 25% | 🎁 +10 SP: 15% | ✋ +15 Slaps: 15% | ✋ +25 Slaps: 9.5% | 😢 Try again: 10% | 🎁 +100 SP: 0.5%
+    const weights = [0.25, 0.25, 0.15, 0.15, 0.095, 0.10, 0.005];
     let r = Math.random();
     let selectedIndex = 0;
     for (let i = 0; i < weights.length; i++) {
@@ -571,9 +557,10 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
       }
     }
 
-    // Add a natural offset so it lands in a natural, organic location within the 60deg slice (e.g. ±12 degrees from center)
-    const offset = (Math.random() - 0.5) * 24; 
-    const targetAngle = 360 - (selectedIndex * 60) - 30 + offset;
+    // Add a natural offset so it lands in an organic location within the 7-segment slice
+    const sliceAngle = 360 / 7;
+    const offset = (Math.random() - 0.5) * (sliceAngle * 0.4); 
+    const targetAngle = 360 - (selectedIndex * sliceAngle) - (sliceAngle / 2) + offset;
     
     // Accumulate spin rotation starting from current spinDegrees
     const currentRotation = spinDegrees;
@@ -660,14 +647,14 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
     const nextWithdrawalCount = currentWithdrawalRefs + 1;
 
     sound.playSuccess();
-    updateCoinsAndXp(100, 15, 'Daily Check-in', `Referral Reward: ${target.name}`);
+    updateCoinsAndXp(referralSpBonus, 15, 'Daily Check-in', `Referral Reward: ${target.name}`);
     updateStatsDirectly({
       referralsList: updatedList,
       referralsForCurrentWithdrawal: nextWithdrawalCount,
       referrals: (stats.referrals || 0) + 1
     });
 
-    addNotification('🏆 Referral Bonus Claimed!', `Earned +100 SP! (${nextWithdrawalCount}/3 referrals claimed for this withdrawal)`, 'success');
+    addNotification('🏆 Referral Bonus Claimed!', `Earned +${referralSpBonus} SP! (${nextWithdrawalCount} referrals claimed for this withdrawal)`, 'success');
   };
 
   // Simulate friend watching ads (for demonstration and testing)
@@ -768,9 +755,11 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
             <div className="flex flex-col ml-4">
               <span className="text-slate-950 font-black text-[15px] sm:text-[16px] leading-tight">Watch a video ad</span>
               <div className="flex flex-col gap-0.5">
-                <span className="text-[#FF3B77] font-black text-[13px]">+3 slaps</span>
-                <span className="text-slate-400 font-bold text-[10px] uppercase tracking-wider">
-                  Watched today: {stats.adsWatchedToday ?? 0}/20
+                <span className="text-[#FF3B77] font-black text-[13px]">+3 slaps & +5 SP</span>
+                <span className="text-slate-500 font-bold text-[10px] uppercase tracking-wider flex items-center gap-1">
+                  <span>Today: {stats.adsWatchedToday ?? 0}/20</span>
+                  <span>•</span>
+                  <span className="text-[#FF3B77] font-black">Lifetime: {stats.totalAdsWatchedLifetime || 0} Ads</span>
                 </span>
               </div>
             </div>
@@ -927,6 +916,10 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                       <p className="text-slate-600 font-bold text-sm mt-2 text-center leading-relaxed px-2">
                         You successfully refilled <strong className="text-slate-900 font-black">+3 slaps available</strong> for today. Go slap!
                       </p>
+                      <div className="mt-3 bg-amber-50 border-2 border-amber-300 text-amber-900 px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                        <span>📺 Permanent Lifetime Watched Ads:</span>
+                        <span className="text-[#FF3B77] font-black">{stats.totalAdsWatchedLifetime || 0}</span>
+                      </div>
                       <button
                         onClick={() => setActiveModal(null)}
                         className="mt-6 w-full font-black text-sm py-3 rounded-2xl border-4 border-slate-900 bg-emerald-400 hover:bg-emerald-500 text-slate-950 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95"
@@ -1003,26 +996,27 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                       }}
                       className="w-64 h-64 rounded-full border-4 border-slate-950 bg-white shadow-inner overflow-hidden relative flex items-center justify-center z-0"
                     >
-                      {/* Segment Lines & labels */}
-                      <div className="absolute inset-0 rounded-full" style={{ background: 'conic-gradient(#FF3B77 0deg 60deg, #FFD043 60deg 120deg, #4965FF 120deg 180deg, #A855F7 180deg 240deg, #00D09E 240deg 300deg, #FFFDF6 300deg 360deg)' }} />
+                      {/* Segment Lines & labels (7 slices) */}
+                      <div className="absolute inset-0 rounded-full" style={{ background: 'conic-gradient(#FF3B77 0deg 51.43deg, #FFD043 51.43deg 102.86deg, #4965FF 102.86deg 154.29deg, #A855F7 154.29deg 205.71deg, #00D09E 205.71deg 257.14deg, #FF8C00 257.14deg 308.57deg, #E11D48 308.57deg 360deg)' }} />
                       
                       {/* Inner border ring */}
                       <div className="absolute inset-4 rounded-full border-2 border-slate-950/20 pointer-events-none" />
 
-                      {/* Precise overlapping-proof radial text placement */}
+                      {/* Precise overlapping-proof radial text placement for 7 segments */}
                       {[
-                        { text: '+10 SP', color: 'text-white' },
-                        { text: '+5 Slaps', color: 'text-slate-950' },
-                        { text: '+20 Slaps', color: 'text-white' },
-                        { text: '+15 Slaps', color: 'text-white' },
-                        { text: '+25 Slaps', color: 'text-white' },
-                        { text: 'Try Again', color: 'text-slate-950' }
+                        { text: '🎁 +5 SP', color: 'text-white' },
+                        { text: '✋ +5 Slaps', color: 'text-slate-950' },
+                        { text: '🎁 +10 SP', color: 'text-white' },
+                        { text: '✋ +15 Slaps', color: 'text-white' },
+                        { text: '✋ +25 Slaps', color: 'text-white' },
+                        { text: '😢 Try again', color: 'text-slate-950' },
+                        { text: '🎁 +100 SP', color: 'text-amber-200 font-extrabold' }
                       ].map((seg, i) => {
-                        const angle = i * 60 + 30;
+                        const angle = i * (360 / 7) + (360 / 14);
                         return (
                           <span
                             key={i}
-                            className={`absolute font-black text-[11px] tracking-tight ${seg.color} drop-shadow-[0_1px_1.5px_rgba(15,23,42,0.15)] select-none`}
+                            className={`absolute font-black text-[10px] tracking-tight ${seg.color} drop-shadow-[0_1px_2px_rgba(15,23,42,0.8)] select-none`}
                             style={{
                               left: '50%',
                               top: '50%',

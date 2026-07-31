@@ -2,10 +2,10 @@ import { useState, useRef, useEffect, MouseEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RefreshCw, Zap, Shield, Sparkles, Heart } from 'lucide-react';
 import { sound } from '../utils/sound';
-import { UserStats, Transaction } from '../types';
+import { UserStats, Transaction, EconomyConfig } from '../types';
 import { HAND_UPGRADES } from '../handsData';
 import { CharacterVisual } from './CharacterVisual';
-import FruitMatch from './FruitMatch';
+import SlapAMole from './SlapAMole';
 
 export interface SlapCharacter {
   id: string;
@@ -23,7 +23,7 @@ export const CHARACTERS: SlapCharacter[] = [
     name: 'Momo Peach',
     maxHp: 50,
     rarity: 'COMMON',
-    defeatCoins: 50,
+    defeatCoins: 25,
     defeatXp: 30,
     folderPath: 'momo'
   },
@@ -32,7 +32,7 @@ export const CHARACTERS: SlapCharacter[] = [
     name: 'Puni Slime',
     maxHp: 80,
     rarity: 'UNCOMMON',
-    defeatCoins: 90,
+    defeatCoins: 45,
     defeatXp: 50,
     folderPath: 'puni'
   },
@@ -41,7 +41,7 @@ export const CHARACTERS: SlapCharacter[] = [
     name: 'Bobo Tea',
     maxHp: 120,
     rarity: 'RARE',
-    defeatCoins: 150,
+    defeatCoins: 75,
     defeatXp: 80,
     folderPath: 'bobo'
   },
@@ -50,7 +50,7 @@ export const CHARACTERS: SlapCharacter[] = [
     name: 'Wooly Alpaca',
     maxHp: 200,
     rarity: 'EPIC',
-    defeatCoins: 280,
+    defeatCoins: 140,
     defeatXp: 150,
     folderPath: 'wooly'
   },
@@ -59,11 +59,73 @@ export const CHARACTERS: SlapCharacter[] = [
     name: 'Aero Star',
     maxHp: 350,
     rarity: 'LEGENDARY',
-    defeatCoins: 600,
+    defeatCoins: 300,
     defeatXp: 300,
     folderPath: 'aero'
   }
 ];
+
+export const CHARACTER_SPECS: Record<string, {
+  name: string;
+  rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
+  maxHp: number;
+  baseReward: number;
+  criticalReward: number;
+  defeatCoins: number;
+  defeatXp: number;
+  folderPath: string;
+}> = {
+  'Momo Peach': {
+    name: 'Momo Peach',
+    rarity: 'COMMON',
+    maxHp: 50,
+    baseReward: 1,
+    criticalReward: 4,
+    defeatCoins: 25,
+    defeatXp: 30,
+    folderPath: 'momo'
+  },
+  'Puni Slime': {
+    name: 'Puni Slime',
+    rarity: 'UNCOMMON',
+    maxHp: 80,
+    baseReward: 1.5,
+    criticalReward: 6,
+    defeatCoins: 45,
+    defeatXp: 50,
+    folderPath: 'puni'
+  },
+  'Bobo Tea': {
+    name: 'Bobo Tea',
+    rarity: 'RARE',
+    maxHp: 120,
+    baseReward: 2.5,
+    criticalReward: 10,
+    defeatCoins: 75,
+    defeatXp: 80,
+    folderPath: 'bobo'
+  },
+  'Wooly Alpaca': {
+    name: 'Wooly Alpaca',
+    rarity: 'EPIC',
+    maxHp: 200,
+    baseReward: 4,
+    criticalReward: 15,
+    defeatCoins: 140,
+    defeatXp: 150,
+    folderPath: 'wooly'
+  },
+  'Aero Star': {
+    name: 'Aero Star',
+    rarity: 'LEGENDARY',
+    maxHp: 350,
+    baseReward: 7.5,
+    criticalReward: 25,
+    defeatCoins: 300,
+    defeatXp: 300,
+    folderPath: 'aero'
+  }
+};
 
 interface SlapGameProps {
   stats: UserStats;
@@ -71,6 +133,7 @@ interface SlapGameProps {
   updateStatsDirectly: (newStats: Partial<UserStats>) => void;
   addNotification: (title: string, message: string, type: 'success' | 'info') => void;
   setActiveTab?: (tab: 'home' | 'earn' | 'slap' | 'wallet' | 'profile') => void;
+  economyConfig?: EconomyConfig;
 }
 
 interface Particle {
@@ -101,10 +164,10 @@ function spawnNewCharacter(): SavedCharacterState {
   let rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
   let timerSeconds = 180;
   let maxHp = 50;
-  let defeatCoins = 50;
+  let defeatCoins = 25;
   let defeatXp = 30;
-  let baseReward = 2;
-  let criticalReward = 8;
+  let baseReward = 1;
+  let criticalReward = 4;
   let name = 'Momo Peach';
   let folderPath = 'momo';
 
@@ -112,50 +175,50 @@ function spawnNewCharacter(): SavedCharacterState {
     rarity = 'COMMON';
     timerSeconds = 180; // 3:00
     maxHp = 50;
-    defeatCoins = 50;
+    defeatCoins = 25;
     defeatXp = 30;
-    baseReward = 2;
-    criticalReward = 8;
+    baseReward = 1;
+    criticalReward = 4;
     name = 'Momo Peach';
     folderPath = 'momo';
   } else if (roll < 90) { // 70 + 20 = 90
     rarity = 'UNCOMMON';
     timerSeconds = 150; // 2:30
     maxHp = 80;
-    defeatCoins = 90;
+    defeatCoins = 45;
     defeatXp = 50;
-    baseReward = 3;
-    criticalReward = 12;
+    baseReward = 1.5;
+    criticalReward = 6;
     name = 'Puni Slime';
     folderPath = 'puni';
   } else if (roll < 97) { // 90 + 7 = 97
     rarity = 'RARE';
     timerSeconds = 120; // 2:00
     maxHp = 120;
-    defeatCoins = 150;
+    defeatCoins = 75;
     defeatXp = 80;
-    baseReward = 5;
-    criticalReward = 20;
+    baseReward = 2.5;
+    criticalReward = 10;
     name = 'Bobo Tea';
     folderPath = 'bobo';
   } else if (roll < 99.5) { // 97 + 2.5 = 99.5
     rarity = 'EPIC';
     timerSeconds = 90; // 1:30
     maxHp = 200;
-    defeatCoins = 280;
+    defeatCoins = 140;
     defeatXp = 150;
-    baseReward = 8;
-    criticalReward = 30;
+    baseReward = 4;
+    criticalReward = 15;
     name = 'Wooly Alpaca';
     folderPath = 'wooly';
   } else {
     rarity = 'LEGENDARY';
     timerSeconds = 60; // 1:00
     maxHp = 350;
-    defeatCoins = 600;
+    defeatCoins = 300;
     defeatXp = 300;
-    baseReward = 15;
-    criticalReward = 50;
+    baseReward = 7.5;
+    criticalReward = 25;
     name = 'Aero Star';
     folderPath = 'aero';
   }
@@ -185,8 +248,8 @@ const SHOWCASE_CHARACTERS = [
     shadowColor: 'shadow-[0_0_20px_rgba(148,163,184,0.15)]',
     bgGradient: 'from-[#1e293b] to-[#0f172a]',
     hp: 50,
-    reward: 2,
-    critical: 8,
+    reward: 1,
+    critical: 4,
     chance: '70%',
     patSuccess: '15%',
     image: 'momo'
@@ -200,8 +263,8 @@ const SHOWCASE_CHARACTERS = [
     shadowColor: 'shadow-[0_0_20px_rgba(16,185,129,0.25)]',
     bgGradient: 'from-[#064e3b] to-[#022c22]',
     hp: 80,
-    reward: 3,
-    critical: 12,
+    reward: 1.5,
+    critical: 6,
     chance: '20%',
     patSuccess: '10%',
     image: 'puni'
@@ -215,8 +278,8 @@ const SHOWCASE_CHARACTERS = [
     shadowColor: 'shadow-[0_0_20px_rgba(59,130,246,0.25)]',
     bgGradient: 'from-[#1e3a8a] to-[#172554]',
     hp: 120,
-    reward: 5,
-    critical: 20,
+    reward: 2.5,
+    critical: 10,
     chance: '7%',
     patSuccess: '7%',
     image: 'bobo'
@@ -230,8 +293,8 @@ const SHOWCASE_CHARACTERS = [
     shadowColor: 'shadow-[0_0_20px_rgba(168,85,247,0.25)]',
     bgGradient: 'from-[#581c87] to-[#3b0764]',
     hp: 200,
-    reward: 8,
-    critical: 30,
+    reward: 4,
+    critical: 15,
     chance: '2.5%',
     patSuccess: '4%',
     image: 'wooly'
@@ -245,15 +308,15 @@ const SHOWCASE_CHARACTERS = [
     shadowColor: 'shadow-[0_0_25px_rgba(245,158,11,0.35)]',
     bgGradient: 'from-[#78350f] to-[#451a03]',
     hp: 350,
-    reward: 15,
-    critical: 50,
+    reward: 7.5,
+    critical: 25,
     chance: '0.5%',
     patSuccess: '2%',
     image: 'aero'
   }
 ];
 
-export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly, addNotification, setActiveTab }: SlapGameProps) {
+export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly, addNotification, setActiveTab, economyConfig }: SlapGameProps) {
   const activeHand = HAND_UPGRADES.find(h => h.id === (stats.selectedHand || 'wooden')) || HAND_UPGRADES[0];
   
   // Base miss chance by hand
@@ -265,7 +328,7 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
   else if (activeHand.id === 'legendary') handMissChance = 0.01;
 
   const slapEnergy = Math.max(0, stats.maxSlapsPerDay - stats.slapsToday);
-  const [subTab, setSubTab] = useState<'slap' | 'fruit'>('slap');
+  const [subTab, setSubTab] = useState<'slap' | 'mole'>('slap');
   const [isSlapAnimating, setIsSlapAnimating] = useState<boolean>(false);
   const [isBlinking, setIsBlinking] = useState<boolean>(false);
   const [particles, setParticles] = useState<Particle[]>([]);
@@ -292,43 +355,24 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
         const elapsedSeconds = Math.floor((Date.now() - parsed.lastSavedTimestamp) / 1000);
         const updatedTimer = Math.max(0, parsed.timerSeconds - elapsedSeconds);
         
-        let baseReward = parsed.baseReward;
-        let criticalReward = parsed.criticalReward;
-        if (!baseReward || !criticalReward) {
-          if (parsed.rarity === 'COMMON') { baseReward = 2; criticalReward = 8; }
-          else if (parsed.rarity === 'UNCOMMON') { baseReward = 3; criticalReward = 12; }
-          else if (parsed.rarity === 'RARE') { baseReward = 5; criticalReward = 20; }
-          else if (parsed.rarity === 'EPIC') { baseReward = 8; criticalReward = 30; }
-          else { baseReward = 15; criticalReward = 50; }
-        }
-
-        let cleanFolderPath = parsed.folderPath;
-        if (!['momo', 'puni', 'bobo', 'wooly', 'aero'].includes(cleanFolderPath)) {
-          if (parsed.rarity === 'COMMON') {
-            cleanFolderPath = 'momo';
-            parsed.name = 'Momo Peach';
-          } else if (parsed.rarity === 'UNCOMMON') {
-            cleanFolderPath = 'puni';
-            parsed.name = 'Puni Slime';
-          } else if (parsed.rarity === 'RARE') {
-            cleanFolderPath = 'bobo';
-            parsed.name = 'Bobo Tea';
-          } else if (parsed.rarity === 'EPIC') {
-            cleanFolderPath = 'wooly';
-            parsed.name = 'Wooly Alpaca';
-          } else {
-            cleanFolderPath = 'aero';
-            parsed.name = 'Aero Star';
-          }
-        }
+        const spec = CHARACTER_SPECS[parsed.name] || 
+          (parsed.rarity === 'COMMON' ? CHARACTER_SPECS['Momo Peach'] :
+           parsed.rarity === 'UNCOMMON' ? CHARACTER_SPECS['Puni Slime'] :
+           parsed.rarity === 'RARE' ? CHARACTER_SPECS['Bobo Tea'] :
+           parsed.rarity === 'EPIC' ? CHARACTER_SPECS['Wooly Alpaca'] :
+           CHARACTER_SPECS['Aero Star']);
 
         if (updatedTimer > 0 && parsed.hp > 0) {
           return {
             ...parsed,
-            folderPath: cleanFolderPath,
-            name: parsed.name,
-            baseReward,
-            criticalReward,
+            name: spec.name,
+            rarity: spec.rarity,
+            maxHp: spec.maxHp,
+            baseReward: spec.baseReward,
+            criticalReward: spec.criticalReward,
+            defeatCoins: spec.defeatCoins,
+            defeatXp: spec.defeatXp,
+            folderPath: spec.folderPath,
             timerSeconds: updatedTimer,
             lastSavedTimestamp: Date.now()
           };
@@ -536,8 +580,16 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
     const baseDmg = Math.floor(Math.random() * (activeHand.maxDamage - activeHand.minDamage + 1)) + activeHand.minDamage;
     const finalDmg = isCritical ? baseDmg * 2 : baseDmg;
 
+    // Resolve exact character spec
+    const charSpec = CHARACTER_SPECS[characterState.name] || 
+      (characterState.rarity === 'COMMON' ? CHARACTER_SPECS['Momo Peach'] :
+       characterState.rarity === 'UNCOMMON' ? CHARACTER_SPECS['Puni Slime'] :
+       characterState.rarity === 'RARE' ? CHARACTER_SPECS['Bobo Tea'] :
+       characterState.rarity === 'EPIC' ? CHARACTER_SPECS['Wooly Alpaca'] :
+       CHARACTER_SPECS['Aero Star']);
+
     // Reward calculation based on character's rewards & hand's SP bonus
-    const baseRewardCoins = isCritical ? characterState.criticalReward : characterState.baseReward;
+    const baseRewardCoins = isCritical ? charSpec.criticalReward : charSpec.baseReward;
     if (isCritical) {
       setShakeType('crit');
       setTimeout(() => setShakeType('none'), 300);
@@ -545,11 +597,14 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
       setShakeType('none');
     }
 
-    const finalCoinsAwarded = Math.round(baseRewardCoins * (1 + activeHand.spBonus));
+    const eventMultiplier = economyConfig?.doubleSpEventActive ? 2 : 1;
+    const rawCoins = baseRewardCoins * (1 + activeHand.spBonus) * eventMultiplier;
+    const finalCoinsAwarded = Math.round(rawCoins * 10) / 10;
     const xpAwarded = isCritical ? 4 : 2;
 
     // Apply stats rewards
     updateCoinsAndXp(finalCoinsAwarded, xpAwarded, 'Slap Game', `Target Hit (${activeHand.name})`);
+    updateStatsDirectly({ totalDamageDealtToday: (stats.totalDamageDealtToday || 0) + finalDmg });
     incrementCombo();
 
     // Reduce Target HP
@@ -585,12 +640,14 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
       setIsDefeatedTransition(true);
       setSpeechText(null);
 
+      const defeatCoinsAwarded = Math.round(charSpec.defeatCoins * eventMultiplier * 10) / 10;
+
       // Award defeat bonuses
-      updateCoinsAndXp(characterState.defeatCoins, characterState.defeatXp, 'Slap Game', `Defeated ${characterState.name}`);
+      updateCoinsAndXp(defeatCoinsAwarded, charSpec.defeatXp, 'Slap Game', `Defeated ${charSpec.name}`);
 
       addNotification(
         '🎯 TARGET DEFEATED!',
-        `You KO'D ${characterState.name}! Earned +${characterState.defeatCoins} SP & +${characterState.defeatXp} XP!`,
+        `You KO'D ${charSpec.name}! Earned +${defeatCoinsAwarded} SP & +${charSpec.defeatXp} XP!`,
         'success'
       );
 
@@ -857,39 +914,42 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
   }
 
   return (
-    <div className={`flex flex-col text-slate-900 select-none pb-4 ${subTab === 'fruit' ? 'gap-1.5 -mt-1 sm:-mt-2' : 'gap-4'}`} id="slap-tab-layout">
+    <div className={`flex flex-col text-slate-900 select-none pb-4 ${subTab === 'mole' ? 'gap-1.5 -mt-1 sm:-mt-2' : 'gap-4'}`} id="slap-tab-layout">
       
-      {/* Dynamic Sub-tab Segment Selectors */}
-      <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900/90 rounded-2xl border-3 border-slate-950 shadow-[2px_2.5px_0px_0px_rgba(15,23,42,1)] z-10" id="slap-sub-tabs">
-        <button
-          onClick={() => { sound.playSlap(); setSubTab('slap'); }}
-          className={`py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
-            subTab === 'slap'
-              ? 'bg-[#FF3B77] text-white border-2 border-slate-950 shadow-[1.5px_2px_0px_0px_rgba(0,0,0,1)]'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <span>👋</span> Slap Boss
-        </button>
-        <button
-          onClick={() => { sound.playSlap(); setSubTab('fruit'); }}
-          className={`py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
-            subTab === 'fruit'
-              ? 'bg-[#FFD043] text-slate-950 border-2 border-slate-950 shadow-[1.5px_2px_0px_0px_rgba(0,0,0,1)]'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <span>🍓</span> Fruit Match
-        </button>
-      </div>
+      {/* Dynamic Sub-tab Segment Selectors (only shown in Slap Boss mode) */}
+      {subTab === 'slap' && (
+        <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900/90 rounded-2xl border-3 border-slate-950 shadow-[2px_2.5px_0px_0px_rgba(15,23,42,1)] z-10" id="slap-sub-tabs">
+          <button
+            onClick={() => { sound.playSlap(); setSubTab('slap'); }}
+            className={`py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+              subTab === 'slap'
+                ? 'bg-[#FF3B77] text-white border-2 border-slate-950 shadow-[1.5px_2px_0px_0px_rgba(0,0,0,1)]'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>👋</span> Slap Boss
+          </button>
+          <button
+            onClick={() => { sound.playSlap(); setSubTab('mole'); }}
+            className={`py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+              subTab === 'mole'
+                ? 'bg-[#FFD043] text-slate-950 border-2 border-slate-950 shadow-[1.5px_2px_0px_0px_rgba(0,0,0,1)]'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>🔨</span> Slap-a-Mole
+          </button>
+        </div>
+      )}
 
-      {subTab === 'fruit' ? (
-        <FruitMatch
+      {subTab === 'mole' ? (
+        <SlapAMole
           stats={stats}
           updateCoinsAndXp={updateCoinsAndXp}
           updateStatsDirectly={updateStatsDirectly}
           addNotification={addNotification}
           onClose={() => setSubTab('slap')}
+          economyConfig={economyConfig}
         />
       ) : (
         <>
@@ -1103,8 +1163,8 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
       <div className="bg-[#090D1C] border-3 border-slate-950 rounded-[24px] p-3.5 relative flex flex-col gap-3 shadow-[3px_3.5px_0px_0px_rgba(15,23,42,1)] overflow-hidden transition-all text-white" id="characters-showcase-panel">
         {/* Cosmic background star/glow effects */}
         <div className="absolute inset-0 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:24px_24px] opacity-10 pointer-events-none" />
-        <div className="absolute -top-16 -left-16 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-16 -right-16 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-16 -left-16 w-32 h-32 bg-[radial-gradient(circle,rgba(168,85,247,0.15)_0%,transparent_70%)] pointer-events-none" />
+        <div className="absolute -bottom-16 -right-16 w-32 h-32 bg-[radial-gradient(circle,rgba(59,130,246,0.15)_0%,transparent_70%)] pointer-events-none" />
 
         {/* Heading */}
         <div className="text-center py-1 select-none z-10" id="showcase-header">

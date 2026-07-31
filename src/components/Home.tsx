@@ -3,10 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Flame, Hand, Gift, Sword, Sparkles, Coins, Lock, CheckCircle, 
   Star, ArrowUp, Check, X, Tv, Play, CheckSquare, Layers, Award,
-  ExternalLink, Zap, Trophy, Clock
+  ExternalLink, Zap, Trophy, Clock, Hammer
 } from 'lucide-react';
 import { sound } from '../utils/sound';
-import { UserStats, Transaction } from '../types';
+import { UserStats, Transaction, EconomyConfig } from '../types';
 import { HAND_UPGRADES, HandUpgrade } from '../handsData';
 import { HandVisual } from './HandVisual';
 
@@ -15,9 +15,10 @@ interface HomeProps {
   updateCoinsAndXp: (coins: number, xp: number, category: Transaction['category'], title: string) => void;
   updateStatsDirectly: (newStats: Partial<UserStats>) => void;
   addNotification: (title: string, message: string, type: 'success' | 'info') => void;
+  economyConfig?: EconomyConfig;
 }
 
-export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, addNotification }: HomeProps) {
+export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, addNotification, economyConfig }: HomeProps) {
   const [showClaimsModal, setShowClaimsModal] = useState<boolean>(false);
   const [showAdModal, setShowAdModal] = useState<boolean>(false);
   const [adPlaying, setAdPlaying] = useState<boolean>(false);
@@ -61,13 +62,13 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
     : false;
 
   const daysOfCheckIn = [
-    { day: 1, slaps: 5, coins: 0 },
-    { day: 2, slaps: 8, coins: 0 },
-    { day: 3, slaps: 10, coins: 0 },
-    { day: 4, slaps: 12, coins: 0 },
-    { day: 5, slaps: 15, coins: 0 },
-    { day: 6, slaps: 20, coins: 0 },
-    { day: 7, slaps: 25, coins: 50 }
+    { day: 1, slaps: 1, coins: 10 },
+    { day: 2, slaps: 1, coins: 20 },
+    { day: 3, slaps: 2, coins: 30 },
+    { day: 4, slaps: 2, coins: 40 },
+    { day: 5, slaps: 3, coins: 50 },
+    { day: 6, slaps: 3, coins: 75 },
+    { day: 7, slaps: 5, coins: 150 }
   ];
 
   const handleClaimDaily = () => {
@@ -146,7 +147,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
         const newAdsToday = adsWatchedToday + 1;
         const newAdsLifetime = lifetimeAdsWatched + 1;
 
-        // Reward player with +3 slaps and +15 SP
+        // Reward player with +3 slaps and +5 SP
         const currentSlaps = Math.max(0, stats.maxSlapsPerDay - stats.slapsToday);
         const nextSlapsToday = Math.max(0, stats.slapsToday - 3);
 
@@ -156,11 +157,11 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
           slapsToday: nextSlapsToday
         });
 
-        updateCoinsAndXp(15, 10, 'Ad', 'Watched Video Ad');
+        updateCoinsAndXp(5, 10, 'Ad', 'Watched Video Ad');
 
         addNotification(
           '🎉 Ad Completed!',
-          `+1 Ad Added to Lifetime Progress (${newAdsLifetime} Total)! +3 Slaps Refilled & +15 SP!`,
+          `+1 Ad Added to Lifetime Progress (${newAdsLifetime} Total)! +3 Slaps Refilled & +5 SP!`,
           'success'
         );
       }
@@ -276,11 +277,12 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
     addNotification('Challenge Completed!', `🎉 Earned +${rewardSp} SP for "${title}"!`, 'success');
   };
 
-  // Calculate standard 8 daily challenges
+  // Calculate standard daily tasks with rewards ranging from 5 SP to 100 SP
   const basicChallengesList = [
     {
       id: 'daily_login',
-      title: 'Daily Login',
+      title: 'Daily Check-in',
+      subtitle: 'Claim your daily login streak bonus',
       reward: 5,
       icon: Gift,
       iconBg: 'bg-amber-400 text-slate-950',
@@ -289,47 +291,61 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
       shortcut: () => { sound.playSuccess(); setShowClaimsModal(true); }
     },
     {
-      id: 'watch_5_ads',
-      title: 'Watch 5 Ads',
-      reward: 15,
-      icon: Tv,
-      iconBg: 'bg-rose-500 text-white',
-      current: Math.min(5, adsWatchedToday),
-      target: 5,
-      shortcut: () => startWatchingAd()
-    },
-    {
-      id: 'watch_20_ads',
-      title: 'Watch 20 Ads',
-      reward: 50,
-      icon: Tv,
-      iconBg: 'bg-purple-600 text-white',
-      current: Math.min(20, adsWatchedToday),
-      target: 20,
-      shortcut: () => startWatchingAd()
-    },
-    {
       id: 'play_slap_10',
       title: 'Play SlapEarn 10 Times',
-      reward: 20,
+      subtitle: 'Perform 10 slaps in the Slap arena',
+      reward: 10,
       icon: Hand,
       iconBg: 'bg-blue-500 text-white',
-      current: Math.min(10, stats.slapsPlayedToday || (stats.slapsToday > 0 ? Math.min(10, stats.slapsToday) : 0)),
+      current: Math.min(10, stats.slapsPlayedToday || 0),
       target: 10
     },
     {
-      id: 'defeat_3_chars',
-      title: 'Defeat 3 Characters',
+      id: 'play_whack_mole_2',
+      title: 'Play Whack a Mole 2 Times',
+      subtitle: 'Play 2 rounds in the Whack-a-Mole mini-game',
+      reward: 15,
+      icon: Hammer,
+      iconBg: 'bg-[#00D09E] text-slate-950 font-black',
+      current: Math.min(2, stats.whackAMolePlayedToday || 0),
+      target: 2
+    },
+    {
+      id: 'deal_5000_damage',
+      title: 'Deal 5,000 Slap Damage',
+      subtitle: 'Inflict 5,000 total damage on targets',
+      reward: 20,
+      icon: Flame,
+      iconBg: 'bg-orange-500 text-white',
+      current: Math.min(5000, stats.totalDamageDealtToday || ((stats.slapsPlayedToday || 0) * 120)),
+      target: 5000
+    },
+    {
+      id: 'defeat_2_chars',
+      title: 'Defeat 2 Boss Characters',
+      subtitle: 'KO 2 target characters in Slap game',
       reward: 30,
       icon: Sword,
       iconBg: 'bg-red-500 text-white',
-      current: Math.min(3, stats.charactersDefeatedToday || 0),
-      target: 3
+      current: Math.min(2, stats.charactersDefeatedToday || 0),
+      target: 2
+    },
+    {
+      id: 'watch_15_ads',
+      title: 'Watch 15 Video Ads',
+      subtitle: 'Watch sponsor videos to earn extra SP',
+      reward: 40,
+      icon: Tv,
+      iconBg: 'bg-purple-600 text-white',
+      current: Math.min(15, adsWatchedToday),
+      target: 15,
+      shortcut: () => startWatchingAd()
     },
     {
       id: 'earn_500_sp',
       title: 'Earn 500 SP Today',
-      reward: 25,
+      subtitle: 'Accumulate 500 SP points today',
+      reward: 50,
       icon: Coins,
       iconBg: 'bg-[#00D09E] text-slate-950',
       current: Math.min(500, stats.spEarnedToday || 0),
@@ -337,38 +353,41 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
     },
     {
       id: 'complete_1_survey',
-      title: 'Complete 1 Survey',
-      reward: 100,
+      title: 'Complete 1 Survey Task',
+      subtitle: 'Complete a market research survey',
+      reward: 75,
       icon: CheckSquare,
       iconBg: 'bg-cyan-500 text-slate-950',
-      current: Math.min(1, stats.surveysCompletedToday || (stats.surveyProfile?.completedOnce ? 1 : 0)),
+      current: Math.min(1, stats.surveysCompletedToday || 0),
       target: 1,
       shortcut: () => { sound.playSuccess(); setShowTaskModal(true); }
     },
     {
       id: 'complete_1_offer',
-      title: 'Complete 1 Offerwall Offer',
-      reward: 200,
+      title: 'Complete 1 Offerwall Task',
+      subtitle: 'Finish an app or game offer',
+      reward: 100,
       icon: Zap,
       iconBg: 'bg-amber-400 text-slate-950',
-      current: Math.min(1, stats.offersCompletedToday || (totalTasksCompleted > 0 ? 1 : 0)),
+      current: Math.min(1, stats.offersCompletedToday || 0),
       target: 1,
       shortcut: () => { sound.playSuccess(); setShowTaskModal(true); }
     }
   ];
 
-  // 9th challenge: Complete All Daily Tasks
+  // 10th grand completion task: Complete All Daily Tasks
   const basicCompletedCount = basicChallengesList.filter(c => c.current >= c.target).length;
   const allDailyChallengesList = [
     ...basicChallengesList,
     {
       id: 'complete_all_tasks',
       title: 'Complete All Daily Tasks',
+      subtitle: 'Finish all 9 daily challenges for a grand bonus',
       reward: 100,
       icon: Award,
       iconBg: 'bg-gradient-to-r from-amber-400 to-rose-500 text-white font-black',
       current: basicCompletedCount,
-      target: 8
+      target: 9
     }
   ];
 
@@ -506,46 +525,52 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
         </div>
       </div>
 
-      {/* Daily Challenges Section */}
+      {/* Daily Tasks Section matching Earn Page Colors & Styling */}
       <div 
-        className="bg-[#0F172A] border-4 border-slate-950 rounded-[28px] p-4 text-white shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-3.5 relative overflow-hidden" 
-        id="daily-challenges-section"
+        className="bg-white border-4 border-slate-900 rounded-[28px] p-4 text-slate-950 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-3.5 relative overflow-hidden" 
+        id="daily-tasks-section"
       >
         {/* Section Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 border-b border-slate-800 gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b-3 border-slate-900 gap-2.5 relative z-10">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-[#FFD043] border-2 border-slate-950 rounded-xl flex items-center justify-center text-slate-950 shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] shrink-0">
-              <Trophy className="w-5 h-5 stroke-[2.5px]" />
+            <div className="w-12 h-12 bg-[#FFD043] border-3 border-slate-900 rounded-[18px] flex items-center justify-center text-slate-950 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] shrink-0">
+              <Trophy className="w-6 h-6 stroke-[2.5px]" />
             </div>
             <div>
-              <h3 className="font-black text-base text-white tracking-tight uppercase">DAILY CHALLENGES</h3>
-              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-wider">
-                Earn bonus SP rewards daily!
+              <div className="flex items-center gap-2">
+                <h3 className="font-black text-base text-slate-950 tracking-tight uppercase">DAILY TASKS</h3>
+                <span className="bg-[#FFEED1] text-slate-950 border-2 border-slate-900 font-black text-[10px] px-2 py-0.5 rounded-full uppercase shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                  5 SP - 100 SP
+                </span>
+              </div>
+              <p className="text-slate-500 font-bold text-[11px] mt-0.5">
+                Complete daily tasks to earn SP rewards!
               </p>
             </div>
           </div>
           
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
             {/* Daily Reset Countdown Timer */}
-            <div className="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-2xl flex items-center gap-1.5 shadow-inner">
-              <Clock className="w-3.5 h-3.5 text-amber-400 stroke-[2.5px] animate-pulse shrink-0" />
+            <div className="bg-[#FFEED1] border-2 border-slate-900 px-2.5 py-1 rounded-[14px] flex items-center gap-1.5 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+              <Clock className="w-3.5 h-3.5 text-[#FF3B77] stroke-[2.5px] animate-pulse shrink-0" />
               <div className="flex flex-col text-left">
-                <span className="text-[8px] text-slate-400 font-extrabold uppercase leading-none">Resets in</span>
-                <span className="text-[11px] font-mono font-black text-amber-300 leading-tight tracking-tight">{timeLeftStr || '--h --m --s'}</span>
+                <span className="text-[8px] text-slate-600 font-extrabold uppercase leading-none">Resets in</span>
+                <span className="text-[11px] font-mono font-black text-slate-950 leading-tight tracking-tight">{timeLeftStr || '--h --m --s'}</span>
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-2xl text-right">
-              <span className="text-xs font-black text-[#00D09E]">
-                {allDailyChallengesList.filter(c => claimedChallenges.includes(c.id)).length} / 9
+            {/* Claimed Counter */}
+            <div className="bg-[#00D09E] border-2 border-slate-900 px-2.5 py-1 rounded-[14px] text-right shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+              <span className="text-xs font-black text-slate-950">
+                {allDailyChallengesList.filter(c => claimedChallenges.includes(c.id)).length} / {allDailyChallengesList.length}
               </span>
-              <span className="text-[9px] text-slate-400 block font-bold leading-none mt-0.5">Claimed</span>
+              <span className="text-[8px] text-slate-900 block font-extrabold leading-none uppercase">Claimed</span>
             </div>
           </div>
         </div>
 
-        {/* Challenges List */}
-        <div className="flex flex-col gap-2.5">
+        {/* Tasks List */}
+        <div className="flex flex-col gap-3 relative z-10">
           {allDailyChallengesList.map((item) => {
             const isClaimed = claimedChallenges.includes(item.id);
             const isCompleted = item.current >= item.target;
@@ -555,71 +580,79 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
             return (
               <div 
                 key={item.id}
-                className={`p-3 rounded-2xl border-2 border-slate-800 flex items-center justify-between gap-3 transition-all ${
+                className={`p-3.5 sm:p-4 rounded-[22px] border-3 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                   isClaimed 
-                    ? 'bg-slate-900/50 border-slate-800/60 opacity-70' 
+                    ? 'bg-slate-100/90 border-slate-300 opacity-75 shadow-none' 
                     : isCompleted 
-                      ? 'bg-emerald-950/50 border-emerald-500/50 ring-2 ring-emerald-500/30' 
-                      : 'bg-slate-900/90'
+                      ? 'bg-[#E8FDF5] border-slate-900 shadow-[3px_3px_0px_0px_rgba(0,208,158,1)] ring-2 ring-[#00D09E]/50' 
+                      : 'bg-white border-slate-900 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] hover:bg-[#FAF8F5]'
                 }`}
-                id={`daily-challenge-item-${item.id}`}
+                id={`daily-task-item-${item.id}`}
               >
-                {/* Left Icon & Title */}
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div className={`w-9 h-9 rounded-xl border-2 border-slate-950 flex items-center justify-center shrink-0 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] ${item.iconBg}`}>
-                    <IconComponent className="w-4.5 h-4.5 stroke-[2.5px]" />
+                {/* Left Icon & Details */}
+                <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+                  <div className={`w-11 h-11 rounded-[16px] border-3 border-slate-900 flex items-center justify-center shrink-0 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] ${item.iconBg}`}>
+                    <IconComponent className="w-5.5 h-5.5 stroke-[2.5px]" />
                   </div>
 
                   <div className="flex flex-col min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-extrabold text-xs text-white truncate">
+                    {/* Title & Reward Tag */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-black text-sm sm:text-base text-slate-950 leading-snug break-words">
                         {item.title}
                       </span>
-                      <span className="text-[10px] font-black text-amber-400 shrink-0">
+                      <span className="text-xs font-black text-[#FF3B77] shrink-0 bg-[#FFF0F4] border-2 border-[#FF3B77]/40 px-2.5 py-0.5 rounded-full shadow-[1px_1px_0px_0px_rgba(255,59,119,0.2)]">
                         +{item.reward} SP
                       </span>
                     </div>
 
-                    {/* Progress Bar & Text */}
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className="flex-1 bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                    {/* Task Description / Subtitle */}
+                    {item.subtitle && (
+                      <p className="text-xs font-extrabold text-slate-600 mt-0.5 leading-snug">
+                        {item.subtitle}
+                      </p>
+                    )}
+
+                    {/* Progress Bar & High-Contrast Progress Numbers */}
+                    <div className="flex items-center gap-2.5 mt-2">
+                      <div className="flex-1 bg-slate-200 h-3 rounded-full overflow-hidden border-2 border-slate-900 shadow-inner">
                         <div 
                           className={`h-full rounded-full transition-all duration-300 ${
-                            isCompleted ? 'bg-[#00D09E]' : 'bg-gradient-to-r from-amber-400 to-rose-500'
+                            isCompleted ? 'bg-[#00D09E]' : 'bg-[#FF3B77]'
                           }`}
                           style={{ width: `${progressPercent}%` }}
                         />
                       </div>
-                      <span className="text-[10px] font-mono font-bold text-slate-400 shrink-0">
+                      <span className="text-xs font-mono font-black text-slate-950 bg-slate-100 border border-slate-300 px-2.5 py-0.5 rounded-md shrink-0 shadow-xs">
                         {item.current.toLocaleString()} / {item.target.toLocaleString()}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Action / Claim Button */}
-                <div className="shrink-0">
+                {/* Right Action / Claim Button */}
+                <div className="shrink-0 flex items-center justify-end pt-1 sm:pt-0">
                   {isClaimed ? (
-                    <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-[10px] px-2.5 py-1.5 rounded-xl uppercase tracking-wider flex items-center gap-1">
-                      <Check className="w-3 h-3 stroke-[3px]" />
-                      Done
+                    <span className="bg-slate-200 text-slate-700 border-2 border-slate-400 font-black text-xs px-3 py-1.5 rounded-xl uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
+                      <Check className="w-4 h-4 stroke-[3px] text-emerald-600" />
+                      Completed
                     </span>
                   ) : isCompleted ? (
                     <button
                       onClick={() => handleClaimChallenge(item.id, item.reward, item.title)}
-                      className="bg-[#00D09E] hover:bg-emerald-400 text-slate-950 font-black text-[10px] px-3 py-1.5 rounded-xl border-2 border-slate-950 uppercase tracking-wider shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all"
+                      className="w-full sm:w-auto bg-[#00D09E] hover:bg-emerald-400 text-slate-950 font-black text-xs px-4 py-2 rounded-[14px] border-2.5 border-slate-900 uppercase tracking-wider shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer"
                     >
                       Claim +{item.reward} SP 🎉
                     </button>
                   ) : item.shortcut ? (
                     <button
                       onClick={item.shortcut}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[10px] px-2.5 py-1.5 rounded-xl border border-slate-700 uppercase tracking-wider active:scale-95 transition-all"
+                      className="bg-[#FFD043] hover:bg-yellow-400 text-slate-950 font-black text-xs px-4 py-1.5 rounded-[12px] border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer uppercase tracking-wide"
                     >
-                      Go
+                      Start Task
                     </button>
                   ) : (
-                    <span className="bg-slate-950 text-slate-500 border border-slate-800 font-bold text-[9px] px-2.5 py-1 rounded-xl uppercase tracking-wider">
+                    <span className="bg-slate-100 text-slate-800 border-2 border-slate-300 font-extrabold text-xs px-2.5 py-1 rounded-xl">
                       {progressPercent}%
                     </span>
                   )}
@@ -630,48 +663,50 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
         </div>
       </div>
 
+
+
       {/* Hand Shop Card - Opens Hand Shop Modal */}
       <div 
-        className="bg-[#0F172A] border-4 border-slate-950 rounded-[24px] p-4 text-white shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-3 relative overflow-hidden"
+        className="bg-white border-4 border-slate-900 rounded-[28px] p-4 text-slate-950 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-3.5 relative overflow-hidden"
         id="slapearn-hand-shop-card"
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-[#FFD043] border-2 border-slate-950 rounded-xl flex items-center justify-center text-slate-950">
-              <Sword className="w-5 h-5 stroke-[2.5px]" />
+        <div className="flex items-center justify-between border-b-3 border-slate-900 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-12 h-12 bg-[#FFD043] border-3 border-slate-900 rounded-[18px] flex items-center justify-center text-slate-950 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] shrink-0">
+              <Sword className="w-6 h-6 stroke-[2.5px]" />
             </div>
             <div>
-              <h4 className="font-black text-sm text-white leading-tight">Hand Shop & Upgrades</h4>
-              <p className="text-slate-400 font-bold text-[10px] uppercase tracking-wider">
+              <h4 className="font-black text-base text-slate-950 tracking-tight uppercase">HAND SHOP & UPGRADES</h4>
+              <p className="text-slate-500 font-bold text-[11px] mt-0.5">
                 Equip & Unlock Slap Hands
               </p>
             </div>
           </div>
-          <span className="bg-slate-800 border border-slate-700 text-amber-400 font-black text-[10px] px-2.5 py-1 rounded-full">
+          <span className="bg-[#FFEED1] text-slate-950 border-2 border-slate-900 font-black text-[10px] px-2.5 py-1 rounded-full uppercase shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
             {unlockedHandsList.length}/{HAND_UPGRADES.length} Unlocked
           </span>
         </div>
 
         {/* Currently Equipped Hand Summary */}
         {selectedHandObj && (
-          <div className="bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-3 flex items-center justify-between gap-3">
+          <div className="bg-[#FAF8F5] border-2.5 border-slate-900 rounded-[20px] p-3 flex items-center justify-between gap-3 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)]">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-[#1E293B] border-2 border-slate-800 rounded-xl p-1 flex items-center justify-center shrink-0">
+              <div className="w-12 h-12 bg-white border-2 border-slate-900 rounded-[14px] p-1 flex items-center justify-center shrink-0 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
                 <HandVisual id={selectedHandObj.id} />
               </div>
               <div className="flex flex-col">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-black text-white">{selectedHandObj.name}</span>
-                  <span className={`px-2 py-0.2 rounded-full font-black text-[8px] uppercase ${selectedHandObj.rarityColor}`}>
+                  <span className="text-xs font-black text-slate-950">{selectedHandObj.name}</span>
+                  <span className={`px-2 py-0.5 rounded-full font-black text-[8px] uppercase border border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] ${selectedHandObj.rarityColor}`}>
                     {selectedHandObj.rarity}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 mt-1">
-                  <span>Dmg: <strong className="text-white">{selectedHandObj.minDamage}-{selectedHandObj.maxDamage}</strong></span>
+                <div className="flex items-center gap-2 text-[11px] font-black text-slate-600 mt-1">
+                  <span>Dmg: <strong className="text-slate-950">{selectedHandObj.minDamage}-{selectedHandObj.maxDamage}</strong></span>
                   <span>•</span>
-                  <span>Crit: <strong className="text-yellow-400">{Math.round(selectedHandObj.criticalChance * 100)}%</strong></span>
+                  <span>Crit: <strong className="text-[#FF3B77]">{Math.round(selectedHandObj.criticalChance * 100)}%</strong></span>
                   <span>•</span>
-                  <span>SP: <strong className="text-[#00D09E]">+{Math.round(selectedHandObj.spBonus * 100)}%</strong></span>
+                  <span>SP: <strong className="text-emerald-700">+{Math.round(selectedHandObj.spBonus * 100)}%</strong></span>
                 </div>
               </div>
             </div>
@@ -685,7 +720,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
             setShopViewMode('inspector');
             setShowHandShopModal(true);
           }}
-          className="w-full py-3 rounded-xl border-3 border-slate-950 bg-[#FFD043] hover:bg-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-[2.5px_3px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+          className="w-full py-3 rounded-[16px] border-3 border-slate-900 bg-[#FFD043] hover:bg-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
         >
           <Hand className="w-4 h-4 stroke-[2.5px]" />
           <span>Open Hand Shop & Inspect Details 🥊</span>
@@ -696,25 +731,25 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
       <AnimatePresence>
         {showHandShopModal && (
           <div 
-            className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4"
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4"
             onClick={() => setShowHandShopModal(false)}
           >
             <motion.div
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className="bg-[#0F172A] border-4 border-slate-950 rounded-[28px] w-full max-w-[480px] max-h-[90vh] p-4 relative shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-white flex flex-col my-auto"
+              className="bg-white border-4 border-slate-900 rounded-[32px] w-full max-w-[480px] max-h-[92vh] p-4 sm:p-5 relative shadow-[8px_8px_0px_0px_rgba(15,23,42,1)] text-slate-950 flex flex-col my-auto overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Modal Header */}
-              <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 bg-[#FFD043] border-2 border-slate-950 rounded-xl flex items-center justify-center text-slate-950 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
-                    <Sword className="w-5 h-5 stroke-[2.5px]" />
+              <div className="flex justify-between items-center pb-3 border-b-3 border-slate-900">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-11 h-11 bg-[#FFD043] border-3 border-slate-900 rounded-[16px] flex items-center justify-center text-slate-950 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] shrink-0">
+                    <Sword className="w-5.5 h-5.5 stroke-[2.5px]" />
                   </div>
                   <div>
-                    <h3 className="text-base font-black text-white uppercase tracking-tight">HAND SHOP & UPGRADES</h3>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase">
+                    <h3 className="text-base font-black text-slate-950 uppercase tracking-tight">HAND SHOP & UPGRADES</h3>
+                    <p className="text-[11px] text-slate-500 font-bold uppercase">
                       Inspect details & unlock powerful hands
                     </p>
                   </div>
@@ -724,15 +759,15 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                     sound.playSuccess();
                     setShowHandShopModal(false);
                   }}
-                  className="w-8 h-8 rounded-full border-2 border-slate-950 bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-all shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:scale-90"
+                  className="w-9 h-9 rounded-full border-2.5 border-slate-900 bg-white hover:bg-[#FFEED1] flex items-center justify-center text-slate-950 transition-all shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-90 cursor-pointer"
                   title="Close Shop"
                 >
-                  <X className="w-4 h-4 stroke-[3px]" />
+                  <X className="w-4.5 h-4.5 stroke-[3px]" />
                 </button>
               </div>
 
               {/* Hand Selector Tabs */}
-              <div className="flex items-center justify-between gap-1 py-2 border-b border-slate-800/80 overflow-x-auto">
+              <div className="flex items-center justify-between gap-1.5 py-2.5 border-b-2 border-slate-900 overflow-x-auto">
                 <div className="flex items-center gap-1.5 min-w-max">
                   {HAND_UPGRADES.map((h) => {
                     const isTabActive = shopViewMode === 'inspector' && selectedShopHandId === h.id;
@@ -745,17 +780,17 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                           setSelectedShopHandId(h.id);
                           setShopViewMode('inspector');
                         }}
-                        className={`px-2.5 py-1.5 rounded-xl border-2 font-black text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all ${
+                        className={`px-3 py-1.5 rounded-[12px] border-2 border-slate-900 font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
                           isTabActive
-                            ? 'bg-[#FFD043] text-slate-950 border-slate-950 shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)]'
-                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                            ? 'bg-[#FFD043] text-slate-950 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)]'
+                            : 'bg-slate-100 text-slate-700 hover:bg-[#FFEED1] hover:text-slate-950 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
                         }`}
                       >
                         <span>{h.name.split(' ')[0]}</span>
                         {isUnlocked ? (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          <span className="w-2 h-2 rounded-full bg-[#00D09E] border border-slate-900" />
                         ) : (
-                          <Lock className="w-2.5 h-2.5 text-slate-500" />
+                          <Lock className="w-3 h-3 text-slate-500" />
                         )}
                       </button>
                     );
@@ -767,13 +802,13 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                     sound.playSuccess();
                     setShopViewMode(shopViewMode === 'inspector' ? 'all' : 'inspector');
                   }}
-                  className={`px-2 py-1.5 rounded-xl border-2 font-bold text-[10px] uppercase tracking-wider shrink-0 transition-all ${
+                  className={`px-2.5 py-1.5 rounded-[12px] border-2 border-slate-900 font-black text-[10px] uppercase tracking-wider shrink-0 transition-all cursor-pointer ${
                     shopViewMode === 'all'
-                      ? 'bg-blue-600 text-white border-slate-950'
-                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                      ? 'bg-[#4965FF] text-white shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]'
+                      : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
                   }`}
                 >
-                  {shopViewMode === 'all' ? 'Inspector View' : 'All List'}
+                  {shopViewMode === 'all' ? 'Inspector' : 'All List'}
                 </button>
               </div>
 
@@ -804,75 +839,75 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                     return (
                       <div className="flex flex-col gap-3">
                         {/* Selected Hand Hero Inspector Card */}
-                        <div className={`bg-[#1E293B] border-3 border-slate-950 rounded-[24px] p-4 text-white flex flex-col gap-3 relative overflow-hidden ${hand.shadowColor}`}>
+                        <div className={`bg-[#FAF8F5] border-3 border-slate-900 rounded-[24px] p-4 text-slate-950 flex flex-col gap-3.5 relative overflow-hidden shadow-[3px_3px_0px_0px_rgba(15,23,42,1)]`}>
                           
                           {/* Rarity & Status Header */}
                           <div className="flex items-center justify-between">
-                            <span className={`px-3 py-1 rounded-full font-black text-[10px] uppercase tracking-widest ${hand.rarityColor}`}>
+                            <span className={`px-3 py-1 rounded-full font-black text-[10px] uppercase tracking-widest border border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] ${hand.rarityColor}`}>
                               {hand.rarity} HAND
                             </span>
                             {isSelected ? (
-                              <span className="bg-[#00D09E] text-slate-950 font-black text-[10px] px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                              <span className="bg-[#00D09E] text-slate-950 font-black text-[10px] px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 border border-slate-900 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
                                 <CheckCircle className="w-3.5 h-3.5 text-slate-950 stroke-[3px]" />
                                 Active Hand
                               </span>
                             ) : isUnlocked ? (
-                              <span className="bg-emerald-500/20 text-emerald-400 font-extrabold text-[10px] px-3 py-1 rounded-full border border-emerald-500/30 uppercase">
+                              <span className="bg-emerald-100 text-emerald-800 font-extrabold text-[10px] px-3 py-1 rounded-full border border-slate-900 uppercase shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
                                 Unlocked
                               </span>
                             ) : (
-                              <span className="bg-amber-500/20 text-amber-300 font-extrabold text-[10px] px-3 py-1 rounded-full border border-amber-500/30 uppercase flex items-center gap-1">
-                                <Lock className="w-3 h-3" />
+                              <span className="bg-[#FFEED1] text-amber-950 font-black text-[10px] px-3 py-1 rounded-full border border-slate-900 uppercase flex items-center gap-1 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
+                                <Lock className="w-3 h-3 text-slate-900" />
                                 Locked
                               </span>
                             )}
                           </div>
 
                           {/* Hand Visual Preview Canvas */}
-                          <div className="w-full aspect-[16/9] rounded-2xl overflow-hidden border-2 border-slate-800 bg-[#0F172A] shadow-inner p-3 flex items-center justify-center relative">
-                            <div className={`w-32 h-32 flex items-center justify-center transition-all ${!isUnlocked ? 'brightness-[0.4] filter saturate-50' : ''}`}>
+                          <div className="w-full aspect-[16/9] rounded-[20px] overflow-hidden border-3 border-slate-900 bg-white shadow-inner p-3 flex items-center justify-center relative">
+                            <div className={`w-32 h-32 flex items-center justify-center transition-all ${!isUnlocked ? 'brightness-75 filter saturate-50' : ''}`}>
                               <HandVisual id={hand.id} />
                             </div>
                             {!isUnlocked && (
-                              <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-[1px] flex flex-col items-center justify-center gap-1">
-                                <Lock className="w-8 h-8 text-slate-400 stroke-[2.5px]" />
-                                <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Locked Hand</span>
+                              <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px] flex flex-col items-center justify-center gap-1">
+                                <Lock className="w-8 h-8 text-amber-300 stroke-[2.5px]" />
+                                <span className="text-[11px] font-black text-white uppercase tracking-widest">Locked Hand</span>
                               </div>
                             )}
                           </div>
 
                           {/* Hand Title & Description */}
                           <div>
-                            <h4 className="text-2xl font-black text-white tracking-tight flex items-center justify-between">
+                            <h4 className="text-2xl font-black text-slate-950 tracking-tight flex items-center justify-between">
                               <span>{hand.name}</span>
                             </h4>
-                            <p className="text-slate-300 text-xs font-medium mt-1 leading-relaxed">
+                            <p className="text-slate-600 text-xs font-bold mt-0.5 leading-relaxed">
                               {hand.description}
                             </p>
                           </div>
 
                           {/* Full Detailed Stats Grid */}
-                          <div className="grid grid-cols-3 gap-2 bg-slate-900/90 p-3 rounded-2xl border border-slate-800">
-                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-950/60 border border-slate-800 text-center">
+                          <div className="grid grid-cols-3 gap-2 bg-white p-3 rounded-[18px] border-2 border-slate-900 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-[#FAF8F5] border border-slate-900 text-center">
                               <Sword className="w-4 h-4 text-rose-500 mb-1 stroke-[2.5px]" />
-                              <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">Damage</span>
-                              <span className="font-mono font-black text-sm text-white mt-0.5">
+                              <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-500">Damage</span>
+                              <span className="font-mono font-black text-sm text-slate-950 mt-0.5">
                                 {hand.minDamage}–{hand.maxDamage}
                               </span>
                             </div>
 
-                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-950/60 border border-slate-800 text-center">
-                              <Sparkles className="w-4 h-4 text-yellow-400 mb-1 stroke-[2.5px]" />
-                              <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">Crit Rate</span>
-                              <span className="font-mono font-black text-sm text-yellow-400 mt-0.5">
+                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-[#FAF8F5] border border-slate-900 text-center">
+                              <Sparkles className="w-4 h-4 text-[#FF3B77] mb-1 stroke-[2.5px]" />
+                              <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-500">Crit Rate</span>
+                              <span className="font-mono font-black text-sm text-[#FF3B77] mt-0.5">
                                 {Math.round(hand.criticalChance * 100)}%
                               </span>
                             </div>
 
-                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-950/60 border border-slate-800 text-center">
+                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-[#FAF8F5] border border-slate-900 text-center">
                               <Coins className="w-4 h-4 text-[#00D09E] mb-1 stroke-[2.5px]" />
-                              <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">SP Bonus</span>
-                              <span className="font-mono font-black text-sm text-[#00D09E] mt-0.5">
+                              <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-500">SP Bonus</span>
+                              <span className="font-mono font-black text-sm text-emerald-700 mt-0.5">
                                 +{Math.round(hand.spBonus * 100)}%
                               </span>
                             </div>
@@ -880,32 +915,32 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
 
                           {/* Unlock Requirements Section */}
                           {!isUnlocked && (
-                            <div className="flex flex-col gap-2.5 bg-slate-950/90 p-3 rounded-2xl border border-slate-800 mt-1">
+                            <div className="flex flex-col gap-3 bg-white p-3.5 rounded-[20px] border-2.5 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] mt-1">
                               
                               {/* STAGE 1: Mandatory Ads Requirement Progress */}
                               <div className="flex flex-col gap-1.5">
                                 <div className="flex justify-between items-center text-xs">
-                                  <span className="font-extrabold text-slate-200 flex items-center gap-1.5">
-                                    <Tv className="w-3.5 h-3.5 text-rose-400" />
+                                  <span className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                                    <Tv className="w-3.5 h-3.5 text-[#FF3B77]" />
                                     <span>1. Mandatory Ads Progress:</span>
                                   </span>
-                                  <span className={`font-mono font-black ${adsMet ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                  <span className={`font-mono font-black ${adsMet ? 'text-emerald-700' : 'text-[#FF3B77]'}`}>
                                     {lifetimeAdsWatched} / {req.requiredAds} Ads
                                   </span>
                                 </div>
 
-                                <div className="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden border border-slate-800">
+                                <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden border-2 border-slate-900">
                                   <div 
                                     className={`h-full rounded-full transition-all duration-300 ${
-                                      adsMet ? 'bg-emerald-400' : 'bg-gradient-to-r from-amber-400 to-rose-500'
+                                      adsMet ? 'bg-[#00D09E]' : 'bg-[#FF3B77]'
                                     }`}
                                     style={{ width: `${adProgressPercent}%` }}
                                   />
                                 </div>
 
-                                <div className="text-[10px] text-slate-400 flex justify-between items-center">
+                                <div className="text-[10px] text-slate-600 flex justify-between items-center font-bold">
                                   {adsMet ? (
-                                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                    <span className="text-emerald-700 font-black flex items-center gap-1">
                                       <CheckCircle className="w-3 h-3" /> Mandatory Ads Requirement Met!
                                     </span>
                                   ) : (
@@ -918,20 +953,20 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                               </div>
 
                               {/* STAGE 2: Choice Options */}
-                              <div className="border-t border-slate-800/80 pt-2.5 flex flex-col gap-2">
-                                <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
+                              <div className="border-t-2 border-slate-900 pt-2.5 flex flex-col gap-2">
+                                <span className="text-[10px] uppercase tracking-wider font-black text-slate-600">
                                   2. Choose Unlock Option (After Ads Completed):
                                 </span>
 
                                 {/* Option A: SP Instant Unlock */}
-                                <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
-                                  adsMet ? 'bg-slate-900 border-slate-700' : 'bg-slate-900/40 border-slate-900 opacity-60'
+                                <div className={`p-3 rounded-xl border-2 border-slate-900 flex items-center justify-between gap-2 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] ${
+                                  adsMet ? 'bg-[#FFF9EE]' : 'bg-slate-100 opacity-60'
                                 }`}>
                                   <div className="flex flex-col">
-                                    <span className="text-xs font-black text-amber-300 flex items-center gap-1">
-                                      <Coins className="w-3.5 h-3.5" /> Option A: Pay SP
+                                    <span className="text-xs font-black text-slate-950 flex items-center gap-1">
+                                      <Coins className="w-3.5 h-3.5 text-[#FFD043]" /> Option A: Pay SP
                                     </span>
-                                    <span className="text-[10px] text-slate-400 font-medium">
+                                    <span className="text-[10px] text-slate-600 font-bold">
                                       Cost: {req.spPrice.toLocaleString()} SP
                                     </span>
                                   </div>
@@ -939,9 +974,9 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                                   <button
                                     onClick={() => handleUnlockWithSP(hand)}
                                     disabled={!adsMet || stats.coins < req.spPrice || !levelMet}
-                                    className={`px-3 py-1.5 rounded-xl border-2 border-slate-950 font-black text-[10px] uppercase tracking-wider shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all ${
+                                    className={`px-3.5 py-1.5 rounded-xl border-2.5 border-slate-900 font-black text-[10px] uppercase tracking-wider shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer ${
                                       !adsMet || stats.coins < req.spPrice || !levelMet
-                                        ? 'bg-slate-800 text-slate-500 border-slate-900 cursor-not-allowed shadow-none'
+                                        ? 'bg-slate-200 text-slate-400 border-slate-400 cursor-not-allowed shadow-none'
                                         : 'bg-[#FFD043] hover:bg-yellow-400 text-slate-950'
                                     }`}
                                   >
@@ -950,15 +985,15 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                                 </div>
 
                                 {/* Option B: Offerwall / Survey Tasks Unlock */}
-                                <div className={`p-2.5 rounded-xl border flex flex-col gap-2 ${
-                                  adsMet ? 'bg-slate-900 border-slate-700' : 'bg-slate-900/40 border-slate-900 opacity-60'
+                                <div className={`p-3 rounded-xl border-2 border-slate-900 flex flex-col gap-2 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] ${
+                                  adsMet ? 'bg-[#F0FDF4]' : 'bg-slate-100 opacity-60'
                                 }`}>
                                   <div className="flex items-center justify-between">
                                     <div className="flex flex-col">
-                                      <span className="text-xs font-black text-cyan-300 flex items-center gap-1">
-                                        <CheckSquare className="w-3.5 h-3.5" /> Option B: Free Task Unlock
+                                      <span className="text-xs font-black text-slate-950 flex items-center gap-1">
+                                        <CheckSquare className="w-3.5 h-3.5 text-[#00D09E]" /> Option B: Free Task Unlock
                                       </span>
-                                      <span className="text-[10px] text-slate-400 font-medium">
+                                      <span className="text-[10px] text-slate-600 font-bold">
                                         Tasks: {totalTasksCompleted} / {req.requiredTasks} Completed
                                       </span>
                                     </div>
@@ -966,9 +1001,9 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                                     <button
                                       onClick={() => handleUnlockWithTasks(hand)}
                                       disabled={!adsMet || !tasksMet || !levelMet}
-                                      className={`px-3 py-1.5 rounded-xl border-2 border-slate-950 font-black text-[10px] uppercase tracking-wider shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all ${
+                                      className={`px-3.5 py-1.5 rounded-xl border-2.5 border-slate-900 font-black text-[10px] uppercase tracking-wider shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer ${
                                         !adsMet || !tasksMet || !levelMet
-                                          ? 'bg-slate-800 text-slate-500 border-slate-900 cursor-not-allowed shadow-none'
+                                          ? 'bg-slate-200 text-slate-400 border-slate-400 cursor-not-allowed shadow-none'
                                           : 'bg-[#00D09E] hover:bg-emerald-400 text-slate-950'
                                       }`}
                                     >
@@ -976,16 +1011,16 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                                     </button>
                                   </div>
 
-                                  <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                                  <div className="w-full bg-white h-2.5 rounded-full overflow-hidden border-2 border-slate-900">
                                     <div 
-                                      className="bg-cyan-400 h-full rounded-full transition-all duration-300"
+                                      className="bg-[#00D09E] h-full rounded-full transition-all duration-300"
                                       style={{ width: `${taskProgressPercent}%` }}
                                     />
                                   </div>
 
-                                  <div className="flex justify-between items-center text-[10px]">
+                                  <div className="flex justify-between items-center text-[10px] font-bold">
                                     {req.requiredLevel && (
-                                      <span className={levelMet ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                                      <span className={levelMet ? 'text-emerald-700 font-black' : 'text-[#FF3B77] font-black'}>
                                         Level {req.requiredLevel} ({stats.level}/{req.requiredLevel})
                                       </span>
                                     )}
@@ -994,7 +1029,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                                         setShowHandShopModal(false);
                                         setShowTaskModal(true);
                                       }}
-                                      className="text-cyan-400 hover:underline font-bold flex items-center gap-0.5 ml-auto"
+                                      className="text-[#4965FF] hover:underline font-black flex items-center gap-0.5 ml-auto"
                                     >
                                       <span>Complete Tasks</span>
                                       <ExternalLink className="w-3 h-3" />
@@ -1010,7 +1045,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                           {isUnlocked && (
                             <button
                               onClick={() => handleEquipHand(hand.id)}
-                              className={`w-full py-3 rounded-xl border-3 border-slate-950 font-black text-xs uppercase tracking-wider shadow-[2px_2.5px_0px_0px_rgba(255,255,255,1)] transition-all active:translate-y-[1.5px] active:shadow-none cursor-pointer mt-1 ${
+                              className={`w-full py-3.5 rounded-[16px] border-3 border-slate-900 font-black text-xs uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:translate-y-[1.5px] active:shadow-none cursor-pointer mt-1 ${
                                 isSelected
                                   ? 'bg-[#00D09E] text-slate-950 border-slate-950 cursor-default shadow-none'
                                   : 'bg-white text-slate-950 hover:bg-[#FFEED1]'
@@ -1038,35 +1073,35 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                             setSelectedShopHandId(hand.id);
                             setShopViewMode('inspector');
                           }}
-                          className={`bg-[#1E293B] border-3 border-slate-950 rounded-2xl p-3 text-white flex items-center justify-between gap-3 cursor-pointer hover:border-amber-400 transition-all ${
-                            isSelected ? 'ring-2 ring-yellow-400' : ''
+                          className={`bg-white border-3 border-slate-900 rounded-[20px] p-3 text-slate-950 flex items-center justify-between gap-3 cursor-pointer hover:bg-[#FFEED1]/40 transition-all shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)] ${
+                            isSelected ? 'ring-2 ring-[#FFD043]' : ''
                           }`}
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 bg-[#0F172A] border-2 border-slate-800 rounded-xl p-1 flex items-center justify-center shrink-0">
+                            <div className="w-12 h-12 bg-slate-100 border-2 border-slate-900 rounded-xl p-1 flex items-center justify-center shrink-0 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
                               <HandVisual id={hand.id} />
                             </div>
                             <div className="flex flex-col">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-black text-white">{hand.name}</span>
-                                <span className={`px-2 py-0.2 rounded-full font-black text-[8px] uppercase ${hand.rarityColor}`}>
+                                <span className="text-xs font-black text-slate-950">{hand.name}</span>
+                                <span className={`px-2 py-0.5 rounded-full font-black text-[8px] uppercase border border-slate-900 shadow-[0.5px_0.5px_0px_0px_rgba(15,23,42,1)] ${hand.rarityColor}`}>
                                   {hand.rarity}
                                 </span>
                               </div>
-                              <span className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                                Dmg: <strong className="text-white">{hand.minDamage}-{hand.maxDamage}</strong> • SP: <strong className="text-[#00D09E]">+{Math.round(hand.spBonus * 100)}%</strong>
+                              <span className="text-[11px] text-slate-600 font-extrabold mt-0.5">
+                                Dmg: <strong className="text-slate-950">{hand.minDamage}-{hand.maxDamage}</strong> • SP: <strong className="text-emerald-700">+{Math.round(hand.spBonus * 100)}%</strong>
                               </span>
                             </div>
                           </div>
 
                           <div>
                             {isSelected ? (
-                              <span className="bg-[#00D09E] text-slate-950 font-black text-[9px] px-2.5 py-1 rounded-full uppercase">Active</span>
+                              <span className="bg-[#00D09E] text-slate-950 border border-slate-900 font-black text-[9px] px-2.5 py-1 rounded-full uppercase shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">Active</span>
                             ) : isUnlocked ? (
-                              <span className="bg-emerald-500/20 text-emerald-400 font-bold text-[9px] px-2.5 py-1 rounded-full uppercase">Inspect</span>
+                              <span className="bg-emerald-100 text-emerald-800 border border-slate-900 font-extrabold text-[9px] px-2.5 py-1 rounded-full uppercase">Inspect</span>
                             ) : (
-                              <span className="bg-amber-500/20 text-amber-300 font-bold text-[9px] px-2.5 py-1 rounded-full uppercase flex items-center gap-1">
-                                <Lock className="w-2.5 h-2.5" /> Locked
+                              <span className="bg-[#FFEED1] text-amber-950 border border-slate-900 font-black text-[9px] px-2.5 py-1 rounded-full uppercase flex items-center gap-1">
+                                <Lock className="w-2.5 h-2.5 text-slate-900" /> Locked
                               </span>
                             )}
                           </div>
@@ -1192,7 +1227,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
               <div className="flex flex-col gap-2.5 mb-4">
                 <div className="bg-slate-900 p-3 rounded-2xl border border-slate-800 flex items-center justify-between">
                   <div>
-                    <h5 className="font-black text-xs text-white">CPX Research Survey</h5>
+                    <h5 className="font-black text-xs text-white">MyLead Offerwall Task</h5>
                     <p className="text-[10px] text-slate-400">Takes 3 mins • +1 Task Count & +50 SP</p>
                   </div>
                   <button
@@ -1205,7 +1240,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
 
                 <div className="bg-slate-900 p-3 rounded-2xl border border-slate-800 flex items-center justify-between">
                   <div>
-                    <h5 className="font-black text-xs text-white">TapResearch Quick Quiz</h5>
+                    <h5 className="font-black text-xs text-white">MyLead Opinion Survey</h5>
                     <p className="text-[10px] text-slate-400">Takes 2 mins • +1 Task Count & +50 SP</p>
                   </div>
                   <button
@@ -1312,16 +1347,11 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
 
                       <div>
                         <div className={`font-black text-[10px] leading-tight ${isCurrent ? 'text-amber-500' : 'text-slate-200'}`}>
-                          +{item.slaps}
+                          +{item.coins} SP
                         </div>
-                        {item.coins > 0 ? (
-                          <div className="font-black text-[8px] text-amber-400 mt-0.5 flex items-center justify-center gap-0.5">
-                            <span>⭐</span>
-                            <span>+{item.coins}</span>
-                          </div>
-                        ) : (
-                          <div className="text-[7px] text-slate-500 mt-0.5">Slaps</div>
-                        )}
+                        <div className="font-bold text-[8px] text-amber-400 mt-0.5 flex items-center justify-center gap-0.5">
+                          <span>+{item.slaps} {item.slaps === 1 ? 'Slap' : 'Slaps'}</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1399,7 +1429,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: [0.8, 1.1, 1], opacity: [0, 0.6, 0.4] }}
               transition={{ duration: 1, repeat: Infinity, repeatType: 'reverse' }}
-              className="absolute w-80 h-80 rounded-full bg-gradient-to-r from-amber-500/30 via-rose-500/30 to-cyan-500/30 blur-2xl pointer-events-none"
+              className="absolute w-80 h-80 rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.25)_0%,rgba(244,63,94,0.15)_40%,transparent_70%)] pointer-events-none"
             />
 
             {/* Main Modal Card */}

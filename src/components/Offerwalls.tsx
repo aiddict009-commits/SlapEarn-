@@ -18,7 +18,7 @@ const MOCK_OFFERS: Offer[] = [
     type: 'game',
     difficulty: 'Medium',
     logo: '⛏️',
-    partner: 'Adfalcon Adwall',
+    partner: 'MyLead Offerwall',
     status: 'available',
     steps: [
       { text: 'Download and open Coin Miner Tycoon 3D', completed: false },
@@ -34,7 +34,7 @@ const MOCK_OFFERS: Offer[] = [
     type: 'app',
     difficulty: 'Easy',
     logo: '🔒',
-    partner: 'Fyber Reward Portal',
+    partner: 'MyLead Offerwall',
     status: 'available',
     steps: [
       { text: 'Install DexiWallet from App Store', completed: false },
@@ -49,7 +49,7 @@ const MOCK_OFFERS: Offer[] = [
     type: 'signup',
     difficulty: 'Easy',
     logo: '🎵',
-    partner: 'IronSource Media',
+    partner: 'MyLead Offerwall',
     status: 'available',
     steps: [
       { text: 'Sign up for Sling Beats free account', completed: false },
@@ -278,7 +278,7 @@ export default function Offerwalls({ updateCoinsAndXp, addNotification }: Offerw
           <div>
             <div className="flex items-center gap-2 text-emerald-500 font-display font-semibold tracking-wide text-sm uppercase">
               <Layers className="w-5 h-5 text-emerald-500" />
-              <span>Multi-Source Offerwalls</span>
+              <span>MyLead Offerwall Portal</span>
             </div>
             <h2 className="text-2xl font-bold font-display text-white mt-1">Sponsor Offer Portals</h2>
             <p className="text-slate-400 text-sm mt-1">

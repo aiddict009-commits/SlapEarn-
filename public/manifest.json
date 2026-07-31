@@ -1,0 +1,24 @@
+{
+  "name": "SlapEarn - Slap & Earn Cash Rewards",
+  "short_name": "SlapEarn",
+  "description": "Gamified anime slap app to earn points and withdraw real USDT & PayPal cash!",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0D18",
+  "theme_color": "#00D09E",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

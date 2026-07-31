@@ -1,0 +1,107 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profiles & Game Stats",
+      "description": "Stores core account statistics, balances, slaps, level, and referral state.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "coins": { "type": "number" },
+        "totalEarned": { "type": "number" },
+        "xp": { "type": "number" },
+        "level": { "type": "number" },
+        "streak": { "type": "number" },
+        "lastCheckIn": { "type": "string", "nullable": true },
+        "slapsToday": { "type": "number" },
+        "maxSlapsPerDay": { "type": "number" },
+        "bestCombo": { "type": "number" },
+        "daysActive": { "type": "number" },
+        "referrals": { "type": "number" },
+        "adsWatchedToday": { "type": "number" },
+        "totalAdsWatchedLifetime": { "type": "number" },
+        "lastActiveDate": { "type": "string" },
+        "selectedHand": { "type": "string" },
+        "unlockedHands": { "type": "array", "items": { "type": "string" } },
+        "myReferralCode": { "type": "string" },
+        "referredByCode": { "type": "string" },
+        "referralsList": { "type": "array", "items": { "type": "object" } },
+        "referralsForCurrentWithdrawal": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["coins", "xp", "level"]
+    },
+    "transactions": {
+      "title": "User Ledger & Transactions",
+      "description": "Subcollection under users/{userId}/transactions tracking all earn, spend, and withdrawal events.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["earn", "spend", "withdraw"] },
+        "amount": { "type": "number" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "status": { "type": "string", "enum": ["completed", "pending", "rejected"] }
+      },
+      "required": ["id", "type", "amount", "title", "timestamp", "status"]
+    },
+    "notifications": {
+      "title": "User Notifications",
+      "description": "Subcollection under users/{userId}/notifications tracking app notifications and unread state.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["success", "info"] },
+        "timestamp": { "type": "string" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["id", "title", "message", "timestamp", "read"]
+    },
+    "announcements": {
+      "title": "Global System Announcements",
+      "description": "Global announcements published by admin to all SlapEarn users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "category": { "type": "string" },
+        "type": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["title", "message", "timestamp"]
+    },
+    "withdrawals": {
+      "title": "Withdrawal Requests",
+      "description": "User withdrawal cashout requests.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "amountUsd": { "type": "number" },
+        "spDeducted": { "type": "number" },
+        "method": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "security_logs": {
+      "title": "Security Incident Logs",
+      "description": "Real-time security logs and fraud flags.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "event": { "type": "string" },
+        "severity": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "createdAt": { "type": "number" }
+      }
+    }
+  }
+}

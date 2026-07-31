@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Gift, 
@@ -15,10 +15,15 @@ import {
   PlayCircle,
   ClipboardList,
   ArrowUpRight,
-  Sparkles
+  Sparkles,
+  Clock,
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
 import { sound } from '../utils/sound';
-import { RedemptionOption, UserStats, Transaction } from '../types';
+import { RedemptionOption, UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from '../types';
+import { addWithdrawalToFirestore, getDeviceId } from '../lib/firebase';
+import { syncServerTime, getServerNow, verifyWithdrawalServer } from '../utils/serverTime';
 
 interface RedeemProps {
   stats: UserStats;
@@ -26,33 +31,126 @@ interface RedeemProps {
   addNotification: (title: string, message: string, type: 'success' | 'info') => void;
   transactions: Transaction[];
   updateStatsDirectly?: (newStats: Partial<UserStats>) => void;
+  economyConfig?: EconomyConfig;
 }
 
-const REDEMPTION_CATALOG: RedemptionOption[] = [
-  {
-    id: 'red-usdt',
-    name: 'USDT (Tether)',
-    brand: 'usdt',
-    logo: '💲',
-    color: '#26A17B',
-    rates: [
-      { coins: 5000, value: 0.5 },
-      { coins: 50000, value: 5.0 }
-    ]
-  },
-  {
-    id: 'red-paypal',
-    name: 'PayPal Cashout',
-    brand: 'paypal',
-    logo: '💳',
-    color: '#003087',
-    rates: [
-      { coins: 50000, value: 5.0 }
-    ]
-  }
-];
+export default function Redeem({ stats, deductCoins, addNotification, transactions, updateStatsDirectly, economyConfig }: RedeemProps) {
+  const config = economyConfig || DEFAULT_ECONOMY_CONFIG;
+  const ratio = config.spPerUsdRatio || 10000;
+  const minUsd = config.minCashoutUsd || 0.5;
+  const minCoins = Math.round(minUsd * ratio);
 
-export default function Redeem({ stats, deductCoins, addNotification, transactions, updateStatsDirectly }: RedeemProps) {
+  // Sync server time on mount to guard against device clock tampering
+  useEffect(() => {
+    syncServerTime();
+  }, []);
+
+  // Account Age Calculation using server-synced time
+  const userCreatedAt = typeof stats.createdAt === 'number'
+    ? stats.createdAt
+    : stats.createdAt
+      ? new Date(stats.createdAt).getTime()
+      : getServerNow() - 10 * 24 * 60 * 60 * 1000; // Default fallback for demo stats >= 10 days
+
+  const serverNow = getServerNow();
+  const accountAgeMs = Math.max(0, serverNow - userCreatedAt);
+  const accountAgeDays = Math.floor(accountAgeMs / (1000 * 60 * 60 * 24));
+  const REQUIRED_ACCOUNT_AGE_DAYS = 7;
+  const isAccountAgeEligible = accountAgeDays >= REQUIRED_ACCOUNT_AGE_DAYS;
+  const daysRemainingForWithdrawal = Math.max(1, Math.ceil((REQUIRED_ACCOUNT_AGE_DAYS * 24 * 60 * 60 * 1000 - accountAgeMs) / (1000 * 60 * 60 * 24)));
+
+  // Dynamically build available redemption options based on admin toggles & conversion rates
+  const catalog = useMemo<RedemptionOption[]>(() => {
+    const list: RedemptionOption[] = [];
+
+    if (config.enableCryptoUsdt ?? true) {
+      list.push({
+        id: 'red-usdt',
+        name: 'USDT (Tether Crypto)',
+        brand: 'usdt',
+        logo: '💲',
+        color: '#26A17B',
+        rates: [
+          { coins: minCoins, value: Number((minCoins / ratio).toFixed(2)) },
+          { coins: minCoins * 5, value: Number(((minCoins * 5) / ratio).toFixed(2)) },
+          { coins: minCoins * 20, value: Number(((minCoins * 20) / ratio).toFixed(2)) }
+        ]
+      });
+    }
+
+    if (config.enablePaypal) {
+      list.push({
+        id: 'red-paypal',
+        name: 'PayPal Cash',
+        brand: 'paypal',
+        logo: '💳',
+        color: '#003087',
+        rates: [
+          { coins: minCoins, value: Number((minCoins / ratio).toFixed(2)) },
+          { coins: minCoins * 5, value: Number(((minCoins * 5) / ratio).toFixed(2)) },
+          { coins: minCoins * 20, value: Number(((minCoins * 20) / ratio).toFixed(2)) }
+        ]
+      });
+    }
+
+    if (config.enableAmazonGiftCards) {
+      list.push({
+        id: 'red-amazon',
+        name: 'Amazon e-Gift Card',
+        brand: 'amazon',
+        logo: '🛒',
+        color: '#FF9900',
+        rates: [
+          { coins: minCoins, value: Number((minCoins / ratio).toFixed(2)) },
+          { coins: minCoins * 5, value: Number(((minCoins * 5) / ratio).toFixed(2)) }
+        ]
+      });
+    }
+
+    if (config.enableGooglePlayCards) {
+      list.push({
+        id: 'red-googleplay',
+        name: 'Google Play Gift Card',
+        brand: 'googleplay',
+        logo: '🎮',
+        color: '#01875F',
+        rates: [
+          { coins: minCoins, value: Number((minCoins / ratio).toFixed(2)) },
+          { coins: minCoins * 5, value: Number(((minCoins * 5) / ratio).toFixed(2)) }
+        ]
+      });
+    }
+
+    if (config.enableMobileMoney) {
+      list.push({
+        id: 'red-mobilemoney',
+        name: 'Mobile Money / Bank Transfer',
+        brand: 'mobilemoney',
+        logo: '📱',
+        color: '#E11D48',
+        rates: [
+          { coins: minCoins, value: Number((minCoins / ratio).toFixed(2)) },
+          { coins: minCoins * 5, value: Number(((minCoins * 5) / ratio).toFixed(2)) }
+        ]
+      });
+    }
+
+    if (list.length === 0) {
+      list.push({
+        id: 'red-usdt',
+        name: 'USDT (Tether Crypto)',
+        brand: 'usdt',
+        logo: '💲',
+        color: '#26A17B',
+        rates: [
+          { coins: minCoins, value: Number((minCoins / ratio).toFixed(2)) }
+        ]
+      });
+    }
+
+    return list;
+  }, [config, ratio, minCoins]);
+
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState<boolean>(false);
   const [selectedOption, setSelectedOption] = useState<RedemptionOption | null>(null);
   const [selectedRateIndex, setSelectedRateIndex] = useState<number>(0);
@@ -62,19 +160,54 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
   const [payoutTxDetails, setPayoutTxDetails] = useState<{ value: number; destination: string; brandName: string } | null>(null);
   const [visibleCount, setVisibleCount] = useState<number>(5);
 
-  const handleOpenWithdraw = () => {
+  const handleOpenWithdraw = async () => {
     sound.playSlap();
-    if (stats.coins < 5000) {
+
+    if (stats.isRestricted || stats.status === 'Restricted' || stats.status === 'Frozen') {
       sound.playError();
       addNotification(
-        'Balance Too Low', 
-        `You need at least 5,000 SP to withdraw. Currently you have ${stats.coins.toLocaleString()} SP.`, 
+        'Account Restricted',
+        'Your account is currently restricted from redeeming points. Please contact support.',
         'info'
       );
       return;
     }
-    // Open modal & pre-select first option
-    setSelectedOption(REDEMPTION_CATALOG[0]);
+
+    // Verify 7 days account age requirement with backend server
+    const serverCheck = await verifyWithdrawalServer(userCreatedAt);
+    if (!serverCheck.isEligible) {
+      sound.playError();
+      addNotification(
+        'Account Age Requirement (7 Days - Server Verified)',
+        `Your account must be at least 7 days old to request withdrawals. Server verified current age: ${serverCheck.accountAgeDays} day(s). Please wait ${serverCheck.daysRemaining} more day(s)!`,
+        'info'
+      );
+      return;
+    }
+
+    // Check admin policy required referrals
+    const reqReferrals = config.requiredReferralsForCashout || 0;
+    if (reqReferrals > 0 && (stats.referrals || 0) < reqReferrals) {
+      sound.playError();
+      addNotification(
+        'Referral Requirement Active',
+        `Admin policy requires at least ${reqReferrals} active referral(s) before unlocking cashouts. You currently have ${stats.referrals || 0}.`,
+        'info'
+      );
+      return;
+    }
+
+    if (stats.coins < minCoins) {
+      sound.playError();
+      addNotification(
+        'Balance Too Low', 
+        `You need at least ${minCoins.toLocaleString()} SP ($${minUsd.toFixed(2)} USD) to withdraw. Currently you have ${stats.coins.toLocaleString()} SP.`, 
+        'info'
+      );
+      return;
+    }
+    // Open modal & pre-select first option from dynamic catalog
+    setSelectedOption(catalog[0]);
     setSelectedRateIndex(0);
     setPayoutDestination('');
     setRedeemSuccess(false);
@@ -87,9 +220,17 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
     setSelectedRateIndex(0);
   };
 
-  const handleSubmitRedemption = (e: FormEvent) => {
+  const handleSubmitRedemption = async (e: FormEvent) => {
     e.preventDefault();
     if (!selectedOption || selectedRateIndex === null || !payoutDestination.trim()) return;
+
+    // Server-side verification before submitting withdrawal
+    const serverCheck = await verifyWithdrawalServer(userCreatedAt);
+    if (!serverCheck.isEligible) {
+      sound.playError();
+      addNotification('Account Age Requirement', `Server verification failed: Account must be at least 7 days old to withdraw (${serverCheck.accountAgeDays}/7 days completed).`, 'info');
+      return;
+    }
 
     const rate = selectedOption.rates[selectedRateIndex];
     if (stats.coins < rate.coins) {
@@ -112,6 +253,28 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
         updateStatsDirectly?.({
           referralsForCurrentWithdrawal: 0
         });
+
+        // Sync withdrawal request to Firestore real-time collection & notify local components
+        const newWithdrawalId = 'wd-' + Date.now().toString(36);
+        const newWithdrawalPayload = {
+          id: newWithdrawalId,
+          userId: getDeviceId(),
+          username: stats.username || 'SlapUser',
+          amountUsd: rate.value,
+          spDeducted: rate.coins,
+          method: selectedOption.name,
+          payoutDestination: payoutDestination,
+          status: 'Pending' as const,
+          dateRequested: 'Just now',
+          createdAt: Date.now()
+        };
+        addWithdrawalToFirestore(newWithdrawalPayload);
+        try {
+          window.dispatchEvent(new CustomEvent('slapearn_withdrawal_created', { detail: newWithdrawalPayload }));
+        } catch {
+          // Ignore event dispatch errors
+        }
+
         setPayoutTxDetails({
           value: rate.value,
           destination: payoutDestination,
@@ -152,6 +315,55 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
         </h2>
       </div>
 
+      {/* Account Restricted Banner */}
+      {(stats.isRestricted || stats.status === 'Restricted' || stats.status === 'Frozen') && (
+        <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-3.5 mb-3 text-rose-900 font-bold text-xs flex items-center gap-3 shadow-sm">
+          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+          <div>
+            <span className="font-black text-rose-900 block uppercase tracking-wider text-[11px]">
+              Account Restricted by Admin
+            </span>
+            <span className="text-rose-700 text-[11px]">
+              Your account has been restricted. Earning rewards and redeeming points are currently disabled.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Account Age Requirement Notice Banner */}
+      {!isAccountAgeEligible ? (
+        <div className="bg-amber-500/10 border-2 border-amber-500/50 rounded-2xl p-3 mb-3.5 shadow-sm flex items-center justify-between gap-3 text-amber-950">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-700 shrink-0">
+              <Clock className="w-4.5 h-4.5 stroke-[2.5px]" />
+            </div>
+            <div>
+              <span className="font-black text-amber-950 block uppercase tracking-wider text-[11px] flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5 text-amber-600" /> Account Age Requirement (7 Days • Server Sync)
+              </span>
+              <span className="text-amber-800 text-[11px] font-semibold leading-tight block">
+                Your account is {accountAgeDays} day(s) old (server verified). Withdrawals unlock in {daysRemainingForWithdrawal} day(s).
+              </span>
+            </div>
+          </div>
+          <span className="text-[10px] font-black bg-amber-500 text-slate-950 px-2.5 py-1 rounded-lg border border-slate-900 shrink-0 shadow-[1px_1px_0px_0px_#000]">
+            {accountAgeDays}/7 Days
+          </span>
+        </div>
+      ) : (
+        <div className="bg-emerald-500/10 border-2 border-emerald-500/30 rounded-2xl p-2.5 mb-3.5 flex items-center justify-between text-emerald-950 shadow-sm">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="text-[11px] font-bold text-emerald-950">
+              Server Verified Account Age ({accountAgeDays} days old) • Withdrawals Unlocked
+            </span>
+          </div>
+          <span className="text-[9px] font-black bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-md uppercase border border-slate-900 shadow-[1px_1px_0px_0px_#000]">
+            Eligible
+          </span>
+        </div>
+      )}
+
       {/* Main Balance Card exactly matching screenshot */}
       <div 
         className="bg-[#151728] rounded-[24px] border-4 border-slate-900 p-4 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col items-center justify-center relative mb-4 text-center"
@@ -165,21 +377,34 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
           {stats.coins.toLocaleString()} SP
         </h3>
         <span className="text-emerald-400 font-bold text-xs mt-1 mb-3.5 block">
-          ≈ ${(stats.coins / 10000).toFixed(2)} USD
+          ≈ ${(stats.coins / ratio).toFixed(2)} USD
         </span>
 
         {/* Withdraw Button with bold white border */}
         <button
           onClick={handleOpenWithdraw}
-          className="bg-[#FFD043] border-4 border-white text-slate-950 font-black text-sm px-6 py-3 rounded-[16px] shadow-[2px_2.5px_0px_0px_#000] flex items-center justify-center gap-2 hover:bg-[#FFE066] active:scale-95 transition-all w-full"
+          className={`border-4 border-white font-black text-sm px-6 py-3 rounded-[16px] shadow-[2px_2.5px_0px_0px_#000] flex items-center justify-center gap-2 transition-all w-full ${
+            !isAccountAgeEligible
+              ? 'bg-slate-300 text-slate-700 border-slate-400 opacity-90 cursor-not-allowed hover:bg-slate-300'
+              : 'bg-[#FFD043] text-slate-950 hover:bg-[#FFE066] active:scale-95'
+          }`}
           id="withdraw-action-button"
         >
-          <Download className="w-4.5 h-4.5 text-slate-950 stroke-[2.5px]" />
-          <span>Withdraw</span>
+          {!isAccountAgeEligible ? (
+            <>
+              <Lock className="w-4.5 h-4.5 text-slate-700 stroke-[2.5px]" />
+              <span>Withdraw Locked (7 Days Account Age Required)</span>
+            </>
+          ) : (
+            <>
+              <Download className="w-4.5 h-4.5 text-slate-950 stroke-[2.5px]" />
+              <span>Withdraw</span>
+            </>
+          )}
         </button>
 
         <span className="text-slate-400 font-bold text-[10px] mt-2.5">
-          Minimum withdrawal: 5,000 SP (0.5 USDT) • 50,000 SP ($5 PayPal)
+          Minimum withdrawal: {minCoins.toLocaleString()} SP (${minUsd.toFixed(2)} USD)
         </span>
       </div>
 
@@ -191,15 +416,15 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
           </div>
           <div className="flex flex-col">
             <span className="text-[11px] font-black text-white leading-tight">
-              USDT & PayPal Withdrawals Active
+              Dynamic Admin Payout Gateways Active 💲
             </span>
             <span className="text-[9px] text-amber-200 font-bold mt-0.5">
-              5,000 SP = 0.5 USDT • 50,000 SP = $5 PayPal
+              Rate: {ratio.toLocaleString()} SP = $1.00 USD • {catalog.length} Active Gateways
             </span>
           </div>
         </div>
         <span className="text-[9px] font-black bg-amber-400 text-slate-950 px-2 py-1 rounded-lg border border-slate-950 uppercase shrink-0 font-sans shadow-[1px_1px_0px_0px_#000]">
-          More Options Soon ✨
+          Active ✨
         </span>
       </div>
 
@@ -331,7 +556,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
 
                   {/* Provider Pills */}
                   <div className="grid grid-cols-2 gap-2 mb-3">
-                    {REDEMPTION_CATALOG.map((opt) => {
+                    {catalog.map((opt) => {
                       const isSelected = selectedOption.id === opt.id;
                       return (
                         <button
@@ -345,7 +570,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
                           }`}
                         >
                           <span className="text-lg">{opt.logo}</span>
-                          <span className="text-xs font-black truncate">{opt.brand === 'usdt' ? 'USDT' : 'PayPal'}</span>
+                          <span className="text-xs font-black truncate">{opt.name}</span>
                         </button>
                       );
                     })}
@@ -366,10 +591,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
                       const isSelected = selectedRateIndex === idx;
                       const hasSufficient = stats.coins >= rate.coins;
 
-                      let tierLabel = `${rate.value} USDT`;
-                      if (selectedOption.brand === 'paypal') {
-                        tierLabel = rate.value < 1 ? '$0.50 USD' : '$5.00 USD';
-                      }
+                      const tierLabel = `${rate.value} USDT`;
 
                       return (
                         <button
@@ -396,19 +618,14 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
                   <form onSubmit={handleSubmitRedemption} className="space-y-4">
                     <div>
                       <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5">
-                        {selectedOption.brand === 'usdt' && 'USDT Wallet Address (TRC20 / BEP20)'}
-                        {selectedOption.brand === 'paypal' && 'PayPal Account Email Address'}
+                        USDT Wallet Address (TRC20 / BEP20)
                       </label>
                       <input
-                        type={selectedOption.brand === 'paypal' ? 'email' : 'text'}
+                        type="text"
                         required
                         value={payoutDestination}
                         onChange={(e) => setPayoutDestination(e.target.value)}
-                        placeholder={
-                          selectedOption.brand === 'usdt'
-                            ? 'e.g. 0x71C... or T9yD...'
-                            : 'e.g. user@gmail.com'
-                        }
+                        placeholder="e.g. 0x71C... or T9yD..."
                         className="w-full bg-white border-3 border-slate-900 rounded-xl py-3 px-4 text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-[#FF3B77] transition-all"
                       />
                     </div>
@@ -440,7 +657,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
                   </div>
                   <h3 className="text-2xl font-black text-emerald-600">Pending Review</h3>
                   <p className="text-slate-600 font-bold text-xs mt-2 px-1 leading-relaxed">
-                    We registered your withdrawal of <strong className="text-slate-900 font-black">{selectedOption?.brand === 'usdt' ? `${payoutTxDetails?.value} USDT` : `$${payoutTxDetails?.value ? payoutTxDetails.value.toFixed(2) : '0.00'} USD`}</strong> to {payoutTxDetails?.destination}. Our administrators are reviewing completed slaps for verification.
+                    We registered your withdrawal of <strong className="text-slate-900 font-black">{payoutTxDetails?.value} USDT</strong> to {payoutTxDetails?.destination}. Our administrators are reviewing completed slaps for verification.
                   </p>
 
                   <div className="bg-white border-3 border-slate-900 rounded-2xl p-3 w-full mt-5 text-left text-[11px] space-y-1 font-bold text-slate-600">

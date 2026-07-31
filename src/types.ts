@@ -58,6 +58,7 @@ export interface UserStats {
   username?: string;
   email?: string;
   myReferralCode?: string;
+  createdAt?: number;
   referredByRewardClaimed?: boolean;
   totalAdsWatchedLifetime?: number;
   referralsList?: Array<{ id: string; name: string; adsWatched: number; rewardClaimed: boolean; joinedAt: string }>;
@@ -65,11 +66,15 @@ export interface UserStats {
   totalTasksCompleted?: number;
   surveyProfile?: SurveyProfile;
   slapsPlayedToday?: number;
+  whackAMolePlayedToday?: number;
+  totalDamageDealtToday?: number;
   charactersDefeatedToday?: number;
   spEarnedToday?: number;
   surveysCompletedToday?: number;
   offersCompletedToday?: number;
   claimedDailyChallenges?: string[];
+  isRestricted?: boolean;
+  status?: 'Active' | 'Suspicious' | 'Frozen' | 'Inactive' | 'Banned' | 'Restricted';
 }
 
 export interface BadgeItem {
@@ -131,11 +136,69 @@ export interface Offer {
 export interface RedemptionOption {
   id: string;
   name: string;
-  brand: 'paypal' | 'usdt' | 'amazon' | 'googleplay' | 'steam' | 'bitcoin' | string;
+  brand: 'paypal' | 'usdt' | 'amazon' | 'googleplay' | 'mobilemoney' | 'steam' | 'bitcoin' | string;
   rates: { coins: number; value: number }[];
   logo: string;
   color: string;
 }
+
+export interface EconomyConfig {
+  spPerUsdRatio: number;
+  minCashoutUsd: number;
+  maxCashoutUsdPerReq: number;
+  requiredReferralsForCashout: number;
+  instantApprovalUsdThreshold: number;
+  payoutProcessingFeePercent: number;
+
+  enablePaypal: boolean;
+  enableCryptoUsdt: boolean;
+  enableAmazonGiftCards: boolean;
+  enableGooglePlayCards: boolean;
+  enableMobileMoney: boolean;
+
+  spPerAd: number;
+  dailyAdLimit: number;
+  adCooldownSeconds: number;
+  slapBaseReward: number;
+  criticalHitMultiplier: number;
+  gameEntrySlapsCost: number;
+  referralSpBonus: number;
+  referralCommissionPercent: number;
+  streakMultiplier: number;
+  offerwallUserSharePercent: number;
+
+  doubleSpEventActive?: boolean;
+  maintenanceMode?: boolean;
+}
+
+export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
+  spPerUsdRatio: 10000,
+  minCashoutUsd: 0.50,
+  maxCashoutUsdPerReq: 50.00,
+  requiredReferralsForCashout: 0,
+  instantApprovalUsdThreshold: 2.00,
+  payoutProcessingFeePercent: 0,
+
+  enablePaypal: true,
+  enableCryptoUsdt: true,
+  enableAmazonGiftCards: true,
+  enableGooglePlayCards: true,
+  enableMobileMoney: true,
+
+  spPerAd: 25,
+  dailyAdLimit: 20,
+  adCooldownSeconds: 15,
+  slapBaseReward: 10,
+  criticalHitMultiplier: 3,
+  gameEntrySlapsCost: 5,
+  referralSpBonus: 500,
+  referralCommissionPercent: 10,
+  streakMultiplier: 1.5,
+  offerwallUserSharePercent: 60,
+
+  doubleSpEventActive: false,
+  maintenanceMode: false
+};
 
 export interface QuizQuestion {
   id: string;

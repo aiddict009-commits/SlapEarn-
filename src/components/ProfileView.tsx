@@ -20,7 +20,9 @@ import {
   Lock,
   Check,
   Sparkles,
-  Shield
+  Shield,
+  AlertTriangle,
+  Ban
 } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { UserStats, Transaction } from '../types';
@@ -37,6 +39,10 @@ interface ProfileViewProps {
   addNotification?: (title: string, message: string, type: 'success' | 'info') => void;
   updateStatsDirectly?: (newStats: Partial<UserStats>) => void;
   updateCoinsAndXp?: (coinReward: number, xpReward: number, category: Transaction['category'], title: string) => void;
+  onOpenNotifications?: () => void;
+  authUser?: { email: string; username: string } | null;
+  onOpenAdminHub?: () => void;
+  onNavigateTab?: (tab: 'home' | 'earn' | 'slap' | 'wallet' | 'profile') => void;
 }
 
 export default function ProfileView({ 
@@ -49,7 +55,11 @@ export default function ProfileView({
   onLogout,
   addNotification,
   updateStatsDirectly,
-  updateCoinsAndXp
+  updateCoinsAndXp,
+  onOpenNotifications,
+  authUser,
+  onOpenAdminHub,
+  onNavigateTab
 }: ProfileViewProps) {
   
   // State for modals
@@ -57,9 +67,8 @@ export default function ProfileView({
   const [isSoundEffectsOpen, setIsSoundEffectsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [isLogoutOpen, setIsLogoutOpen] = useState<boolean>(false);
-  const [filterTab, setFilterTab] = useState<'all' | 'unlocked' | 'locked'>('all');
 
-  // Currently equipped title and frame (fallbacks to highest level title)
+  // Currently equipped title and frame (automatically unlocked and upgraded as player levels up)
   const currentLevelTier = getTitleTierForLevel(stats.level);
   const currentTitle = stats.equippedTitle || currentLevelTier.title;
   const equippedBadgeObj = TITLE_TIERS.find((b) => b.title === currentTitle) || currentLevelTier;
@@ -76,21 +85,6 @@ export default function ProfileView({
     if (onToggleMute) {
       onToggleMute();
     }
-  };
-
-  const handleEquipBadge = (badge: TitleTier) => {
-    sound.playSuccess();
-    if (updateStatsDirectly) {
-      updateStatsDirectly({
-        equippedTitle: badge.title,
-        equippedFrame: badge.frameType || 'none',
-      });
-    }
-    addNotification?.(
-      'Title Equipped!',
-      `Equipped "${badge.icon} ${badge.title}". Perk: ${badge.rewardText}`,
-      'success'
-    );
   };
 
   const handleTestSound = (type: 'slap' | 'success' | 'error' | 'levelUp') => {
@@ -129,19 +123,6 @@ export default function ProfileView({
       }, 300);
     }
   };
-
-  const isTierUnlocked = (tier: TitleTier) => {
-    return stats.level >= tier.minLevel || (stats.achievedTitles || []).includes(tier.title);
-  };
-
-  const unlockedCount = TITLE_TIERS.filter(isTierUnlocked).length;
-
-  const filteredBadges = TITLE_TIERS.filter((tier) => {
-    const isUnlocked = isTierUnlocked(tier);
-    if (filterTab === 'unlocked') return isUnlocked;
-    if (filterTab === 'locked') return !isUnlocked;
-    return true;
-  });
 
   return (
     <div className="flex flex-col gap-3.5 text-slate-900 select-none pb-8" id="profile-view-scroll">
@@ -185,18 +166,39 @@ export default function ProfileView({
             ? 'bg-gradient-to-r from-amber-500 via-yellow-300 to-amber-600 bg-clip-text text-transparent drop-shadow-[0_2px_4px_rgba(245,158,11,0.3)]'
             : 'text-slate-950'
         }`}>
-          Slap Champ
+          {authUser?.username || 'Slap Champ'}
         </h3>
+        {authUser?.email && (
+          <span className="text-[11px] font-bold text-slate-500 font-mono -mt-0.5">
+            {authUser.email}
+          </span>
+        )}
 
-        {/* Equipped Title Badge Pill */}
+        {/* Equipped Title Badge Pill - Auto Upgraded by Level */}
         <div className="flex items-center gap-1.5 mt-1 px-3 py-1 bg-slate-900 border-2 border-slate-950 rounded-full shadow-[2px_2px_0px_0px_rgba(15,23,42,1)]">
           <span className="text-sm">{equippedBadgeObj.icon}</span>
-          <span className="text-amber-300 font-black text-xs tracking-wider uppercase">{equippedBadgeObj.title}</span>
+          <span className="text-amber-300 font-black text-xs tracking-wider uppercase">{equippedBadgeObj.title} Title</span>
+          <span className="text-emerald-400 font-bold text-[9px] bg-emerald-950 px-1.5 py-0.2 rounded border border-emerald-800">Auto-Unlocked</span>
         </div>
 
-        <p className="text-slate-400 font-bold text-xs mt-1">
-          Level {stats.level} • {unlockedCount}/8 Badges Unlocked
+        <p className="text-slate-400 font-bold text-xs mt-1 text-center">
+          Level {stats.level} • Perk: <span className="text-amber-400 font-black">{equippedBadgeObj.rewardText}</span>
         </p>
+
+        {/* Account Restricted Status Banner in User Profile */}
+        {(stats.isRestricted || stats.status === 'Restricted' || stats.status === 'Frozen') && (
+          <div className="mt-3 w-full max-w-sm bg-rose-500/10 border-2 border-rose-500/40 rounded-2xl p-3 text-rose-900 flex items-center gap-2.5 shadow-sm">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+            <div className="text-left">
+              <span className="font-black text-rose-950 block uppercase tracking-wider text-[11px] flex items-center gap-1">
+                <Ban className="w-3.5 h-3.5 text-rose-600" /> Account Restricted
+              </span>
+              <span className="text-rose-800 text-[11px] font-semibold leading-tight block">
+                Your account ability to earn rewards and redeem points is restricted by admin.
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Level Progression Progress Bar */}
@@ -215,10 +217,20 @@ export default function ProfileView({
         </div>
       </div>
 
-      {/* Three Stats Cards Row Grid */}
-      <div className="grid grid-cols-3 gap-3" id="stats-grid-row">
+      {/* Four Stats Cards Row Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5" id="stats-grid-row">
+        {/* Lifetime Ads Card */}
+        <div className="bg-white rounded-[24px] border-4 border-slate-900 p-2.5 text-center shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-center items-center h-20">
+          <span className="text-xl font-black text-[#FF3B77] leading-none">
+            {stats.totalAdsWatchedLifetime || 0}
+          </span>
+          <span className="text-slate-400 font-bold text-[10px] sm:text-[11px] leading-tight mt-1">
+            Lifetime ads
+          </span>
+        </div>
+
         {/* Best Combo Card */}
-        <div className="bg-white rounded-[24px] border-4 border-slate-900 p-3 text-center shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-center items-center h-20">
+        <div className="bg-white rounded-[24px] border-4 border-slate-900 p-2.5 text-center shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-center items-center h-20">
           <span className="text-xl font-black text-slate-950 leading-none">
             {bestCombo}
           </span>
@@ -228,7 +240,7 @@ export default function ProfileView({
         </div>
 
         {/* Days Active Card */}
-        <div className="bg-white rounded-[24px] border-4 border-slate-900 p-3 text-center shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-center items-center h-20">
+        <div className="bg-white rounded-[24px] border-4 border-slate-900 p-2.5 text-center shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-center items-center h-20">
           <span className="text-xl font-black text-slate-950 leading-none">
             {daysActive}
           </span>
@@ -238,7 +250,7 @@ export default function ProfileView({
         </div>
 
         {/* Referrals Card */}
-        <div className="bg-white rounded-[24px] border-4 border-slate-900 p-3 text-center shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-center items-center h-20">
+        <div className="bg-white rounded-[24px] border-4 border-slate-900 p-2.5 text-center shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-center items-center h-20">
           <span className="text-xl font-black text-slate-950 leading-none">
             {referrals}
           </span>
@@ -248,142 +260,78 @@ export default function ProfileView({
         </div>
       </div>
 
-      {/* --- BADGES & TITLES REWARDS SECTION --- */}
-      <div className="bg-white rounded-[28px] border-4 border-slate-900 p-4 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-3" id="titles-badges-section">
-        
+      {/* --- MORE WAYS TO EARN SECTION --- */}
+      <div className="bg-white rounded-[28px] border-4 border-slate-900 p-4 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-3" id="more-ways-to-earn-section">
         {/* Section Header */}
         <div className="flex items-center justify-between border-b-2 border-slate-100 pb-2.5">
           <div className="flex items-center gap-2">
-            <Award className="w-6 h-6 text-[#FF3B77]" />
+            <div className="w-8 h-8 rounded-xl bg-[#FFD043] border-2 border-slate-900 flex items-center justify-center text-lg font-black shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+              🚀
+            </div>
             <div>
               <h4 className="text-base font-black text-slate-950 tracking-tight leading-none">
-                Titles & Badges
+                More Ways To Earn
               </h4>
               <p className="text-[10px] font-bold text-slate-400 mt-0.5">
-                Unlock rewards, perks & profile customization
+                New opportunities coming soon
               </p>
             </div>
           </div>
-
-          <div className="bg-[#FFEAF0] border-2 border-slate-900 px-2.5 py-1 rounded-full text-xs font-black text-[#FF3B77] shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
-            {unlockedCount} / {TITLE_TIERS.length}
+          <div className="bg-slate-100 border-2 border-slate-900 px-2.5 py-1 rounded-full text-[10px] font-black text-slate-500 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+            EMPTY
           </div>
         </div>
 
-        {/* Filter Segment Pills */}
-        <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl border-2 border-slate-900">
-          <button
-            onClick={() => setFilterTab('all')}
-            className={`py-1 rounded-lg text-xs font-black transition-all ${
-              filterTab === 'all'
-                ? 'bg-slate-900 text-white shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            All ({TITLE_TIERS.length})
-          </button>
-          <button
-            onClick={() => setFilterTab('unlocked')}
-            className={`py-1 rounded-lg text-xs font-black transition-all ${
-              filterTab === 'unlocked'
-                ? 'bg-slate-900 text-white shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            Unlocked ({unlockedCount})
-          </button>
-          <button
-            onClick={() => setFilterTab('locked')}
-            className={`py-1 rounded-lg text-xs font-black transition-all ${
-              filterTab === 'locked'
-                ? 'bg-slate-900 text-white shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            Locked ({TITLE_TIERS.length - unlockedCount})
-          </button>
-        </div>
-
-        {/* Badges Table Grid List */}
-        <div className="flex flex-col gap-2.5 max-h-[380px] overflow-y-auto pr-1" id="badges-list-container">
-          {filteredBadges.map((badge) => {
-            const isUnlocked = isTierUnlocked(badge);
-            const isEquipped = currentTitle === badge.title;
-
-            return (
-              <div
-                key={badge.id}
-                className={`border-3 border-slate-900 rounded-2xl p-3 flex items-center justify-between gap-2.5 transition-all shadow-[2px_2.5px_0px_0px_rgba(15,23,42,1)] ${
-                  isEquipped
-                    ? 'bg-amber-50/80 border-amber-500'
-                    : isUnlocked
-                    ? 'bg-[#FDFBF2] hover:bg-white'
-                    : 'bg-slate-100/70 opacity-75'
-                }`}
-              >
-                {/* Badge Icon Circle */}
-                <div className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${badge.bgGrad} border-2 border-slate-900 flex items-center justify-center text-xl shrink-0 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] ${
-                  !isUnlocked ? 'grayscale opacity-60' : ''
-                }`}>
-                  {badge.icon}
-                </div>
-
-                {/* Badge Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h5 className="font-black text-xs text-slate-950 leading-none">
-                      {badge.title}
-                    </h5>
-                    {isEquipped && (
-                      <span className="text-[9px] font-black bg-emerald-400 text-slate-950 px-1.5 py-0.5 rounded border border-slate-900 uppercase">
-                        Active
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Unlock Reward */}
-                  <p className="text-[11px] font-black text-[#FF3B77] mt-0.5 leading-tight truncate">
-                    🎁 {badge.rewardText}
-                  </p>
-
-                  {/* Requirement */}
-                  <p className="text-[10px] font-bold text-slate-400 mt-0.5">
-                    🎯 {badge.levelRangeText}
-                  </p>
-                </div>
-
-                {/* Action Button / Badge Status */}
-                <div className="shrink-0">
-                  {isEquipped ? (
-                    <div className="flex items-center gap-1 bg-emerald-400 text-slate-950 font-black text-[10px] px-2.5 py-1.5 rounded-xl border-2 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                      <Check className="w-3.5 h-3.5 stroke-[3px]" />
-                      <span>EQUIPPED</span>
-                    </div>
-                  ) : isUnlocked ? (
-                    <button
-                      onClick={() => handleEquipBadge(badge)}
-                      className="bg-[#FFD043] hover:bg-[#FFE066] text-slate-950 font-black text-[10px] px-3 py-1.5 rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer"
-                    >
-                      EQUIP
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-1 bg-slate-200 text-slate-500 font-bold text-[10px] px-2 py-1.5 rounded-xl border-2 border-slate-400">
-                      <Lock className="w-3 h-3 stroke-[2.5px]" />
-                      <span>LOCKED</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+        {/* Empty Placeholder Frame */}
+        <div className="min-h-[90px] border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center p-4 text-center bg-slate-50/60">
+          <p className="text-xs font-bold text-slate-400">
+            This space is reserved for More Ways To Earn.
+          </p>
         </div>
       </div>
 
       {/* Action Settings Item Cards Stack */}
       <div className="flex flex-col gap-2.5" id="actions-stack-container">
+        {/* Admin Dashboard Hub Toggle Button - ONLY VISIBLE TO aiddict009@gmail.com */}
+        {(authUser?.email?.toLowerCase() === 'aiddict009@gmail.com' || stats?.email?.toLowerCase() === 'aiddict009@gmail.com') && (
+          <button
+            onClick={() => { 
+              sound.playSuccess(); 
+              onOpenAdminHub?.(); 
+            }}
+            className="bg-gradient-to-r from-[#FF3B77] via-pink-600 to-rose-600 rounded-[24px] border-4 border-slate-900 p-3.5 flex items-center justify-between shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] active:scale-98 cursor-pointer transition-all w-full text-left"
+            id="action-admin-dashboard-btn"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-white border-2 border-slate-900 flex items-center justify-center font-black text-slate-950 text-base shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+                ⚡
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-black text-white text-[15px] tracking-tight">Admin Dashboard</span>
+                  <span className="bg-[#FFD043] text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded border border-slate-900 uppercase">
+                    MASTER
+                  </span>
+                </div>
+                <span className="text-pink-100 font-bold text-[10px]">
+                  Economy, Revenue, Users, Fraud & Game Controls
+                </span>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-white stroke-[3px]" />
+          </button>
+        )}
+
         {/* Notifications Item */}
         <button
-          onClick={() => { sound.playSlap(); setIsNotificationsOpen(true); }}
+          onClick={() => { 
+            sound.playSlap(); 
+            if (onOpenNotifications) {
+              onOpenNotifications();
+            } else {
+              setIsNotificationsOpen(true); 
+            }
+          }}
           className="bg-white rounded-[24px] border-4 border-slate-900 p-3.5 flex items-center justify-between shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] active:scale-98 cursor-pointer transition-all w-full text-left"
           id="action-notifications-btn"
         >
@@ -676,7 +624,7 @@ export default function ProfileView({
                 <div className="bg-amber-50 border-2 border-dashed border-amber-300 p-3 rounded-xl flex gap-2.5">
                   <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                   <p className="text-[10px] text-amber-800 font-bold leading-relaxed">
-                    Need further assistance? Contact support at <strong className="text-slate-950">justinkatempa19@gmail.com</strong>
+                    Need further assistance? Contact support at <a href="mailto:aiddict009@gmail.com" className="text-slate-950 font-black underline hover:text-[#FF3B77] transition-colors">aiddict009@gmail.com</a>
                   </p>
                 </div>
               </div>

@@ -277,6 +277,10 @@ class SoundSynthesizer {
       console.warn('Web Audio error failed:', e);
     }
   }
+
+  public playBonus() {
+    this.playSuccess();
+  }
 }
 
 export const sound = new SoundSynthesizer();

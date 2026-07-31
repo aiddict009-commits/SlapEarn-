@@ -14,14 +14,26 @@ import {
   ShieldAlert,
   Clock,
   RefreshCw,
-  ShieldCheck
+  ShieldCheck,
+  Sparkles
 } from 'lucide-react';
 
 import { sound } from './utils/sound';
-import { UserStats, Transaction } from './types';
+import { UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from './types';
 import { processTitleUnlocks } from './utils/titles';
 import { timeGuard, TimeSecurityStatus } from './utils/timeGuard';
 import { proxyGuard, NetworkSecurityStatus } from './utils/proxyGuard';
+import {
+  initAuth,
+  syncUserStatsToFirestore,
+  fetchUserStatsFromFirestore,
+  addTransactionToFirestore,
+  fetchTransactionsFromFirestore,
+  addNotificationToFirestore,
+  subscribeUserStats,
+  subscribeAnnouncementsFromFirestore,
+  subscribeEconomyConfigFromFirestore
+} from './lib/firebase';
 
 // Import subcomponents
 import Home from './components/Home';
@@ -30,6 +42,9 @@ import EarnView from './components/EarnView';
 import Redeem from './components/Redeem';
 import ProfileView from './components/ProfileView';
 import AuthScreen, { AuthUser } from './components/AuthScreen';
+import { PWAInstallPrompt } from './components/PWAInstallPrompt';
+import { NotificationsPanel, AppNotification } from './components/NotificationsPanel';
+import AdminDashboard from './components/AdminDashboard';
 
 interface NotificationToast {
   id: string;
@@ -39,6 +54,7 @@ interface NotificationToast {
 }
 
 const INITIAL_STATS: UserStats = {
+  createdAt: Date.now() - 10 * 24 * 60 * 60 * 1000, // Account created 10 days ago (age >= 7 days)
   coins: 1240, 
   totalEarned: 1240,
   xp: 10, 
@@ -60,7 +76,13 @@ const INITIAL_STATS: UserStats = {
     { id: 'ref-2', name: 'Sarah K.', adsWatched: 14, rewardClaimed: false, joinedAt: '3 days ago' },
     { id: 'ref-3', name: 'David L.', adsWatched: 8, rewardClaimed: false, joinedAt: '5 days ago' }
   ],
-  referralsForCurrentWithdrawal: 0
+  referralsForCurrentWithdrawal: 0,
+  slapsPlayedToday: 0,
+  charactersDefeatedToday: 0,
+  spEarnedToday: 0,
+  surveysCompletedToday: 0,
+  offersCompletedToday: 0,
+  claimedDailyChallenges: []
 };
 
 const INITIAL_TRANSACTIONS: Transaction[] = [
@@ -101,6 +123,17 @@ export default function App() {
       if (parsed.referralsForCurrentWithdrawal === undefined) {
         parsed.referralsForCurrentWithdrawal = 0;
       }
+      if (!parsed.createdAt) {
+        parsed.createdAt = Date.now() - 10 * 24 * 60 * 60 * 1000;
+      }
+      if (parsed.slapsPlayedToday === undefined) parsed.slapsPlayedToday = 0;
+      if (parsed.charactersDefeatedToday === undefined) parsed.charactersDefeatedToday = 0;
+      if (parsed.spEarnedToday === undefined) parsed.spEarnedToday = 0;
+      if (parsed.surveysCompletedToday === undefined) parsed.surveysCompletedToday = 0;
+      if (parsed.offersCompletedToday === undefined) parsed.offersCompletedToday = 0;
+      if (parsed.totalAdsWatchedLifetime === undefined) parsed.totalAdsWatchedLifetime = 0;
+      if (parsed.adsWatchedToday === undefined) parsed.adsWatchedToday = 0;
+      if (!parsed.claimedDailyChallenges) parsed.claimedDailyChallenges = [];
       return parsed;
     }
     return INITIAL_STATS;
@@ -112,6 +145,15 @@ export default function App() {
   });
 
   // Auth state
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
+    try {
+      const cachedAuth = localStorage.getItem('slapearn_auth_user');
+      return cachedAuth ? JSON.parse(cachedAuth) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     const cachedAuth = localStorage.getItem('slapearn_auth_user');
     return !!cachedAuth || !!stats.username;
@@ -121,6 +163,29 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'earn' | 'slap' | 'wallet' | 'profile'>('slap'); // Default to Slap game as pictured!
   const [isMuted, setIsMuted] = useState<boolean>(() => sound.getMuteStatus());
   const [notifications, setNotifications] = useState<NotificationToast[]>([]);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState<boolean>(false);
+  const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState<boolean>(false);
+  const [economyConfig, setEconomyConfig] = useState<EconomyConfig>(DEFAULT_ECONOMY_CONFIG);
+
+  // Real-time Firestore subscription to global economyConfig rules
+  useEffect(() => {
+    const unsubscribe = subscribeEconomyConfigFromFirestore((config) => {
+      setEconomyConfig(config);
+    });
+    return () => unsubscribe();
+  }, []);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('slapearn_notifications_history');
+      if (saved) {
+        const items = JSON.parse(saved);
+        return Array.isArray(items) ? items.filter((item: { read?: boolean }) => !item.read).length : 0;
+      }
+    } catch {
+      // ignore
+    }
+    return 3; // Default unread items
+  });
 
   // Proxy & VPN Security State
   const [proxyStatus, setProxyStatus] = useState<NetworkSecurityStatus>(() => proxyGuard.getStatus());
@@ -159,6 +224,7 @@ export default function App() {
   // Handle Login / Sign Up
   const handleLoginSuccess = (user: AuthUser, isNewUser: boolean) => {
     localStorage.setItem('slapearn_auth_user', JSON.stringify(user));
+    setAuthUser(user);
     setIsAuthenticated(true);
 
     if (isNewUser) {
@@ -169,7 +235,8 @@ export default function App() {
         myReferralCode: user.myReferralCode,
         referredByCode: user.referredByCode,
         totalAdsWatchedLifetime: 0,
-        referredByRewardClaimed: false
+        referredByRewardClaimed: false,
+        createdAt: Date.now()
       }));
 
       if (user.referredByCode) {
@@ -195,14 +262,64 @@ export default function App() {
   const handleLogout = () => {
     sound.playSuccess();
     localStorage.removeItem('slapearn_auth_user');
+    setAuthUser(null);
     setIsAuthenticated(false);
     addNotification('Logged Out', 'You have logged out. Sign up or log in to continue!', 'info');
   };
 
-  // Cache state triggers
+  // Firebase Auth & Firestore Sync state
+  const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
+
+  // Initialize Firebase Auth & Load initial remote Firestore data
+  useEffect(() => {
+    initAuth().then(async (user) => {
+      setFirebaseUid(user.uid);
+
+      // Load stats from Cloud Firestore
+      const remoteStats = await fetchUserStatsFromFirestore(user.uid);
+      if (remoteStats && Object.keys(remoteStats).length > 0) {
+        setStats((prev) => ({ ...prev, ...remoteStats }));
+      } else {
+        // Upload initial stats to Firestore
+        syncUserStatsToFirestore(user.uid, stats);
+      }
+
+      // Load transactions from Cloud Firestore
+      const remoteTxs = await fetchTransactionsFromFirestore(user.uid);
+      if (remoteTxs && remoteTxs.length > 0) {
+        setTransactions(remoteTxs);
+      }
+    }).catch((err) => {
+      console.warn("Firebase authentication note:", err);
+    });
+  }, []);
+
+  // Cache state triggers & Cloud Firestore synchronization
   useEffect(() => {
     localStorage.setItem('slapearn_stats', JSON.stringify(stats));
-  }, [stats]);
+    if (firebaseUid) {
+      syncUserStatsToFirestore(firebaseUid, stats);
+    }
+  }, [stats, firebaseUid]);
+
+  // Real-time listener for announcements broadcasted from Admin Dashboard
+  useEffect(() => {
+    const unsubscribe = subscribeAnnouncementsFromFirestore((announcements) => {
+      if (!announcements || announcements.length === 0) return;
+      const latest = announcements[0];
+      const lastSeenId = localStorage.getItem('slapearn_last_seen_announcement_id');
+      if (latest && latest.id !== lastSeenId) {
+        localStorage.setItem('slapearn_last_seen_announcement_id', latest.id);
+        addNotification(
+          latest.title || '📢 Official Announcement',
+          latest.message,
+          (latest.type as any) || 'info'
+        );
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('slapearn_transactions', JSON.stringify(transactions));
@@ -210,44 +327,62 @@ export default function App() {
 
   // Automatic daily reset when the calendar day rolls over
   useEffect(() => {
-    const todayStr = new Date().toDateString();
-    
-    setStats((prev) => {
-      let updated = { ...prev };
-      let changed = false;
+    const checkDailyReset = () => {
+      const todayStr = new Date().toDateString();
+      
+      setStats((prev) => {
+        let updated = { ...prev };
+        let changed = false;
 
-      // 1. Daily reset of slaps and ads watched & challenges
-      if (!prev.lastActiveDate || prev.lastActiveDate !== todayStr) {
-        updated.slapsToday = 70; // 30 slaps available starting energy (100 - 70 = 30)
-        updated.adsWatchedToday = 0;
-        updated.slapsPlayedToday = 0;
-        updated.charactersDefeatedToday = 0;
-        updated.spEarnedToday = 0;
-        updated.surveysCompletedToday = 0;
-        updated.offersCompletedToday = 0;
-        updated.claimedDailyChallenges = [];
-        updated.lastActiveDate = todayStr;
-        changed = true;
-      }
-
-      // 2. Check if streak is broken or completed (7 days)
-      if (prev.lastCheckIn) {
-        const checkInDate = new Date(prev.lastCheckIn);
-        const today = new Date();
-        const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
-        const d2 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const diffDays = Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
-
-        // If user missed checking in for more than 1 day, reset the streak to 0 (Day 1)
-        // Or if they completed Day 7 already, reset to 0 (Day 1) for their next cycle
-        if (diffDays > 1 || prev.streak >= 7) {
-          updated.streak = 0;
+        // 1. Daily reset of slaps energy, ads watched & daily challenges
+        if (!prev.lastActiveDate || prev.lastActiveDate !== todayStr) {
+          updated.slapsToday = 70; // 30 slaps available starting energy (100 - 70 = 30)
+          updated.adsWatchedToday = 0;
+          updated.slapsPlayedToday = 0;
+          updated.charactersDefeatedToday = 0;
+          updated.spEarnedToday = 0;
+          updated.surveysCompletedToday = 0;
+          updated.offersCompletedToday = 0;
+          updated.claimedDailyChallenges = [];
+          updated.lastActiveDate = todayStr;
           changed = true;
         }
-      }
 
-      return changed ? updated : prev;
-    });
+        // 2. Check if streak is broken or completed (7 days)
+        if (prev.lastCheckIn) {
+          const checkInDate = new Date(prev.lastCheckIn);
+          const today = new Date();
+          const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
+          const d2 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          const diffDays = Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+
+          // If user missed checking in for more than 1 day, reset the streak to 0 (Day 1)
+          // Or if they completed Day 7 already, reset to 0 (Day 1) for their next cycle
+          if (diffDays > 1 || prev.streak >= 7) {
+            updated.streak = 0;
+            changed = true;
+          }
+        }
+
+        return changed ? updated : prev;
+      });
+    };
+
+    // Run check immediately on mount
+    checkDailyReset();
+
+    // Check periodically every 15 seconds in case midnight passes
+    const interval = setInterval(checkDailyReset, 15000);
+
+    // Check on window focus or visibility change
+    window.addEventListener('focus', checkDailyReset);
+    document.addEventListener('visibilitychange', checkDailyReset);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', checkDailyReset);
+      document.removeEventListener('visibilitychange', checkDailyReset);
+    };
   }, []);
 
   // Title Unlocks and Rewards check on Level changes or app init
@@ -272,7 +407,38 @@ export default function App() {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
     setNotifications((prev) => [...prev, { id, title, message, type }]);
 
-    // Auto dismiss after 4 seconds
+    // Also persist into Notifications Panel history
+    try {
+      const existing: AppNotification[] = JSON.parse(
+        localStorage.getItem('slapearn_notifications_history') || '[]'
+      );
+      const newPanelItem: AppNotification = {
+        id: `note-${Date.now()}`,
+        title,
+        message,
+        category: type === 'success' ? 'reward' : 'system',
+        timestamp: 'Just now',
+        read: false,
+        type
+      };
+      const updated = [newPanelItem, ...existing].slice(0, 30); // keep up to 30 items
+      localStorage.setItem('slapearn_notifications_history', JSON.stringify(updated));
+
+      if (firebaseUid) {
+        addNotificationToFirestore(firebaseUid, {
+          id: newPanelItem.id,
+          title,
+          message,
+          type,
+          timestamp: new Date().toISOString(),
+          read: false
+        });
+      }
+    } catch {
+      // ignore storage errors
+    }
+
+    // Auto dismiss toast after 4 seconds
     setTimeout(() => {
       setNotifications((prev) => prev.filter((toast) => toast.id !== id));
     }, 4000);
@@ -295,6 +461,16 @@ export default function App() {
     category: Transaction['category'],
     title: string
   ) => {
+    if (stats.isRestricted || stats.status === 'Restricted' || stats.status === 'Frozen') {
+      sound.playError();
+      addNotification(
+        'Account Restricted',
+        'Your account is currently restricted by admin. Earning rewards is disabled.',
+        'info'
+      );
+      return;
+    }
+
     setStats((prev) => {
       let nextXp = prev.xp + xpReward;
       let nextLevel = prev.level;
@@ -358,6 +534,9 @@ export default function App() {
     };
 
     setTransactions((prev) => [newTx, ...prev]);
+    if (firebaseUid) {
+      addTransactionToFirestore(firebaseUid, newTx);
+    }
   };
 
   // Central coin deduction trigger
@@ -366,7 +545,18 @@ export default function App() {
     title: string,
     category: Transaction['category']
   ): boolean => {
+    if (stats.isRestricted || stats.status === 'Restricted' || stats.status === 'Frozen') {
+      sound.playError();
+      addNotification(
+        'Account Restricted',
+        'Your account is currently restricted by admin. Redeeming points is disabled.',
+        'info'
+      );
+      return false;
+    }
+
     let success = false;
+    let newTx: Transaction | null = null;
     setStats((prev) => {
       if (prev.coins < amount) return prev;
       success = true;
@@ -377,7 +567,7 @@ export default function App() {
     });
 
     if (success) {
-      const newTx: Transaction = {
+      newTx = {
         id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
         type: 'redeem',
         amount,
@@ -386,7 +576,10 @@ export default function App() {
         timestamp: new Date().toISOString(),
         status: 'pending'
       };
-      setTransactions((prev) => [newTx, ...prev]);
+      setTransactions((prev) => [newTx!, ...prev]);
+      if (firebaseUid && newTx) {
+        addTransactionToFirestore(firebaseUid, newTx);
+      }
     }
 
     return success;
@@ -479,13 +672,37 @@ export default function App() {
                   <span className="font-sans font-black tracking-tight">{stats.coins.toLocaleString()}</span>
                 </div>
 
-                {/* Streak flame pill / Combo counter */}
-                <div className="flex items-center gap-1 bg-[#FFEAF0] border-2 border-slate-900 px-2.5 py-1 rounded-full text-xs font-black text-slate-950 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]" title="Current Combo">
-                  <Flame className="w-3.5 h-3.5 text-[#FF3B77] fill-[#FF3B77] stroke-[2px]" />
-                  <span className="font-sans font-black tracking-tight">{stats.currentCombo || 0}</span>
-                </div>
+                {/* Notifications Bell Icon Button */}
+                <button
+                  onClick={() => { sound.playSlap(); setIsNotificationPanelOpen(true); }}
+                  className="relative flex items-center justify-center w-7 h-7 bg-white border-2 border-slate-900 rounded-full shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-transform cursor-pointer"
+                  title="Notifications & Activity"
+                  id="header-notification-bell-btn"
+                >
+                  <Bell className="w-3.5 h-3.5 text-slate-950 stroke-[2.5px]" />
+                  {unreadNotificationsCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-[#00D09E] text-slate-950 font-black text-[8px] w-3.5 h-3.5 rounded-full flex items-center justify-center border border-slate-950 animate-pulse">
+                      !
+                    </span>
+                  )}
+                </button>
               </div>
             </header>
+
+            {/* Maintenance Mode & Double SP Event Header Banners */}
+            {economyConfig.maintenanceMode && !isAdminDashboardOpen && (
+              <div className="bg-rose-600 text-white border-b-2 border-slate-900 px-3 py-1.5 font-black text-xs text-center flex items-center justify-center gap-2 shadow-sm z-30 shrink-0" id="maintenance-mode-banner">
+                <ShieldAlert className="w-4 h-4 animate-bounce" />
+                <span>MAINTENANCE MODE ACTIVE - Admin system changes in progress</span>
+              </div>
+            )}
+
+            {economyConfig.doubleSpEventActive && !economyConfig.maintenanceMode && (
+              <div className="bg-[#FF3B77] text-white border-b-2 border-slate-900 px-3 py-1 font-black text-xs text-center flex items-center justify-center gap-2 shadow-sm z-30 shrink-0" id="double-sp-event-banner">
+                <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+                <span>⚡ 2x SP WEEKEND EVENT IS LIVE! Double earnings across all slaps & ads!</span>
+              </div>
+            )}
 
             {/* Dynamic View Scrollport */}
             <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 scrollbar-none" id="slapearn-active-view-container">
@@ -504,6 +721,7 @@ export default function App() {
                       updateCoinsAndXp={updateCoinsAndXp}
                       updateStatsDirectly={updateStatsDirectly}
                       addNotification={addNotification}
+                      economyConfig={economyConfig}
                     />
                   )}
 
@@ -513,6 +731,7 @@ export default function App() {
                       updateCoinsAndXp={updateCoinsAndXp}
                       updateStatsDirectly={updateStatsDirectly}
                       addNotification={addNotification}
+                      economyConfig={economyConfig}
                     />
                   )}
 
@@ -523,6 +742,7 @@ export default function App() {
                       updateStatsDirectly={updateStatsDirectly}
                       addNotification={addNotification}
                       setActiveTab={setActiveTab}
+                      economyConfig={economyConfig}
                     />
                   )}
 
@@ -533,6 +753,7 @@ export default function App() {
                       addNotification={addNotification}
                       transactions={transactions}
                       updateStatsDirectly={updateStatsDirectly}
+                      economyConfig={economyConfig}
                     />
                   )}
 
@@ -548,6 +769,10 @@ export default function App() {
                       addNotification={addNotification}
                       updateStatsDirectly={updateStatsDirectly}
                       updateCoinsAndXp={updateCoinsAndXp}
+                      onOpenNotifications={() => setIsNotificationPanelOpen(true)}
+                      authUser={authUser}
+                      onOpenAdminHub={() => setIsAdminDashboardOpen(true)}
+                      onNavigateTab={(tab) => setActiveTab(tab)}
                     />
                   )}
                 </motion.div>
@@ -733,6 +958,27 @@ export default function App() {
           ))}
         </AnimatePresence>
       </div>
+
+      {/* PWA Install Prompt Banner */}
+      <PWAInstallPrompt />
+
+      {/* Notifications Panel Modal */}
+      <NotificationsPanel
+        isOpen={isNotificationPanelOpen}
+        onClose={() => setIsNotificationPanelOpen(false)}
+        onNavigateTab={(tab) => setActiveTab(tab)}
+        onUnreadCountChange={(count) => setUnreadNotificationsCount(count)}
+      />
+
+      {/* Admin Dashboard Hub Overlay */}
+      {isAdminDashboardOpen && (
+        <AdminDashboard
+          stats={stats}
+          updateStatsDirectly={updateStatsDirectly}
+          addNotification={addNotification}
+          onClose={() => setIsAdminDashboardOpen(false)}
+        />
+      )}
 
     </div>
   );

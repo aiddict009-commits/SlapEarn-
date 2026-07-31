@@ -77,13 +77,13 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
 
   // Setup initial state for mock check-in day checking
   const daysOfCheckIn = [
-    { day: 1, slaps: 5, coins: 0 },
-    { day: 2, slaps: 8, coins: 0 },
-    { day: 3, slaps: 10, coins: 0 },
-    { day: 4, slaps: 12, coins: 0 },
-    { day: 5, slaps: 15, coins: 0 },
-    { day: 6, slaps: 20, coins: 0 },
-    { day: 7, slaps: 25, coins: 50 }
+    { day: 1, slaps: 1, coins: 10 },
+    { day: 2, slaps: 1, coins: 20 },
+    { day: 3, slaps: 2, coins: 30 },
+    { day: 4, slaps: 2, coins: 40 },
+    { day: 5, slaps: 3, coins: 50 },
+    { day: 6, slaps: 3, coins: 75 },
+    { day: 7, slaps: 5, coins: 150 }
   ];
 
   // Handle daily check-in
@@ -155,7 +155,8 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
       
       updateCoinsAndXp(randomCoin, xpValue, 'Slap Game', 'Target Slap Reward');
       updateStatsDirectly({
-        slapsToday: stats.slapsToday + 1
+        slapsToday: stats.slapsToday + 1,
+        slapsPlayedToday: (stats.slapsPlayedToday || 0) + 1
       });
       setSlapEnergy(prev => prev - 1);
 
@@ -290,14 +291,11 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
 
                 <div>
                   <div className={`font-display font-black text-xs sm:text-sm ${isCurrent ? 'text-amber-500' : 'text-slate-200'}`}>
-                    +{item.slaps} Slaps
+                    +{item.coins} SP
                   </div>
-                  {item.coins > 0 && (
-                    <div className="font-display font-black text-xs text-amber-400 mt-1 flex items-center justify-center gap-0.5">
-                      <span>⭐</span>
-                      <span>+{item.coins} SP</span>
-                    </div>
-                  )}
+                  <div className="font-display font-bold text-xs text-amber-400 mt-0.5 flex items-center justify-center gap-0.5">
+                    <span>+{item.slaps} {item.slaps === 1 ? 'Slap' : 'Slaps'}</span>
+                  </div>
                 </div>
               </div>
             );
