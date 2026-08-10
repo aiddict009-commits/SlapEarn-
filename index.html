@@ -17,6 +17,16 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="SlapEarn" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Rewarded Ad Script -->
+    <script async src="https://js.mbidadm.com/static/scripts.js" data-admpid="450610"></script>
+
+    <script>
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        window.deferredPWAInstallPrompt = e;
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

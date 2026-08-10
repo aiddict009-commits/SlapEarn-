@@ -22,8 +22,9 @@ import {
 } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { RedemptionOption, UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from '../types';
-import { addWithdrawalToFirestore, getDeviceId } from '../lib/firebase';
+import { addWithdrawalToFirestore } from '../lib/firebase';
 import { syncServerTime, getServerNow, verifyWithdrawalServer } from '../utils/serverTime';
+import { AnimatedOdometer } from './AnimatedOdometer';
 
 interface RedeemProps {
   stats: UserStats;
@@ -258,7 +259,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
         const newWithdrawalId = 'wd-' + Date.now().toString(36);
         const newWithdrawalPayload = {
           id: newWithdrawalId,
-          userId: getDeviceId(),
+          userId: stats.uid || stats.username || 'SlapUser',
           username: stats.username || 'SlapUser',
           amountUsd: rate.value,
           spDeducted: rate.coins,
@@ -373,8 +374,8 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
           AVAILABLE BALANCE
         </span>
         
-        <h3 className="text-3.5xl font-black text-white tracking-tight mt-1 leading-none">
-          {stats.coins.toLocaleString()} SP
+        <h3 className="text-3.5xl font-black text-white tracking-tight mt-1 leading-none flex items-baseline justify-center">
+          <AnimatedOdometer value={stats.coins} suffix="SP" />
         </h3>
         <span className="text-emerald-400 font-bold text-xs mt-1 mb-3.5 block">
           ≈ ${(stats.coins / ratio).toFixed(2)} USD

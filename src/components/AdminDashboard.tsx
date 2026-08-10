@@ -387,7 +387,7 @@ export default function AdminDashboard({
     slapBaseReward: 10,
     criticalHitMultiplier: 3,
     gameEntrySlapsCost: 5,
-    referralSpBonus: 500,
+    referralSpBonus: 100,
     referralCommissionPercent: 10,
     streakMultiplier: 1.5,
     offerwallUserSharePercent: 60
@@ -402,7 +402,7 @@ export default function AdminDashboard({
   const [slapBaseReward, setSlapBaseReward] = useState(10);
   const [criticalHitMultiplier, setCriticalHitMultiplier] = useState(3);
   const [gameEntrySlapsCost, setGameEntrySlapsCost] = useState(5);
-  const [referralSpBonus, setReferralSpBonus] = useState(500);
+  const [referralSpBonus, setReferralSpBonus] = useState(100);
   const [streakMultiplier, setStreakMultiplier] = useState(1.5);
 
   // Game Characters & Hands State
@@ -871,10 +871,13 @@ export default function AdminDashboard({
 
   // Dynamic Real-Time Calculations for Admin Dashboard Metrics
   const activeUsersCount = users.filter((u) => u.status === 'Active').length;
-  const notActiveUsersCount = users.filter((u) => u.status === 'Frozen' || u.status === 'Suspicious' || u.status === 'Inactive' || u.status === 'Banned').length;
+  const notActiveUsersCount = users.filter((u) => u.status === 'Frozen' || u.status === 'Suspicious' || u.status === 'Inactive' || u.status === 'Banned' || u.isRestricted || u.status === 'Restricted').length;
   const pendingWithdrawalsList = withdrawals.filter((w) => w.status === 'Pending' || w.status === 'Under Review');
   const pendingWithdrawalsCount = pendingWithdrawalsList.length;
   const pendingWithdrawalsUsd = pendingWithdrawalsList.reduce((acc, w) => acc + (w.amountUsd || 0), 0);
+
+  const totalSpByAllUsers = users.reduce((acc, u) => acc + (u.spBalance || 0), 0);
+  const totalLifetimeWithdrawalsSp = withdrawals.reduce((acc, w) => acc + (w.spDeducted || (w.amountUsd ? Math.round(w.amountUsd * 10000) : 0)), 0);
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex flex-col font-sans text-slate-100 overflow-hidden selection:bg-[#FF3B77] selection:text-white" id="admin-dashboard-root">
@@ -1111,14 +1114,14 @@ export default function AdminDashboard({
                     <span className="text-[9px] text-amber-300 font-bold mt-0.5">Frozen or Inactive</span>
                   </div>
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Lifetime Earned SP</span>
-                    <span className="text-xl font-black text-[#FFD043] font-mono mt-1">12.4M</span>
-                    <span className="text-[9px] text-amber-300 font-bold mt-0.5">~$12,400 value</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Total SP (All Users)</span>
+                    <span className="text-xl font-black text-[#FFD043] font-mono mt-1">{totalSpByAllUsers.toLocaleString()} SP</span>
+                    <span className="text-[9px] text-amber-300 font-bold mt-0.5">~${(totalSpByAllUsers / 10000).toFixed(2)} USD value</span>
                   </div>
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">SP Earned Today</span>
-                    <span className="text-xl font-black text-purple-400 font-mono mt-1">480,000</span>
-                    <span className="text-[9px] text-purple-300 font-bold mt-0.5">Avg 124 SP/user</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Lifetime Withdrawals</span>
+                    <span className="text-xl font-black text-rose-400 font-mono mt-1">{totalLifetimeWithdrawalsSp.toLocaleString()} SP</span>
+                    <span className="text-[9px] text-rose-300 font-bold mt-0.5">~${(totalLifetimeWithdrawalsSp / 10000).toFixed(2)} USD paid</span>
                   </div>
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col">
                     <span className="text-[10px] text-slate-400 font-bold uppercase">Withdrawals Pending</span>

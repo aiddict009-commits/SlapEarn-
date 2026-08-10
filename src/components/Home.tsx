@@ -9,6 +9,8 @@ import { sound } from '../utils/sound';
 import { UserStats, Transaction, EconomyConfig } from '../types';
 import { HAND_UPGRADES, HandUpgrade } from '../handsData';
 import { HandVisual } from './HandVisual';
+import { AnimatedOdometer } from './AnimatedOdometer';
+import { AdsterraBanner, triggerRewardedAdScript, RewardedAdScript } from './AdsterraAds';
 
 interface HomeProps {
   stats: UserStats;
@@ -114,6 +116,26 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
     addNotification('Check-in Claimed!', rewardMsg, 'success');
   };
 
+  const handleClaimStarterPack = () => {
+    sound.playSuccess();
+    const currentSlaps = Math.max(0, stats.maxSlapsPerDay - stats.slapsToday);
+    const spaceLeft = 100 - currentSlaps;
+    const slapsToGive = Math.min(50, spaceLeft);
+    const nextSlapsToday = Math.max(0, stats.maxSlapsPerDay - (currentSlaps + slapsToGive));
+
+    updateCoinsAndXp(100, 25, 'Daily Check-in', 'New Player Starter Pack Bonus');
+    updateStatsDirectly({
+      hasClaimedStarterPack: true,
+      slapsToday: nextSlapsToday
+    });
+
+    addNotification(
+      '🎁 Starter Pack Claimed!',
+      `Received +100 SP Starter Bonus & +${slapsToGive} Slaps! Welcome to SlapEarn!`,
+      'success'
+    );
+  };
+
   const slapsAvailable = Math.max(0, stats.maxSlapsPerDay - stats.slapsToday);
 
   // Unlocked hands state
@@ -130,6 +152,8 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
       addNotification('Daily Limit Reached', 'You have reached your limit of 20 ads per day. Resetting tomorrow!', 'info');
       return;
     }
+
+    triggerRewardedAdScript();
 
     setShowAdModal(true);
     setAdPlaying(true);
@@ -311,14 +335,14 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
       target: 2
     },
     {
-      id: 'deal_5000_damage',
-      title: 'Deal 5,000 Slap Damage',
-      subtitle: 'Inflict 5,000 total damage on targets',
+      id: 'deal_60_damage',
+      title: 'Deal 60 Slap Damage',
+      subtitle: 'Inflict 60 total damage on targets',
       reward: 20,
       icon: Flame,
       iconBg: 'bg-orange-500 text-white',
-      current: Math.min(5000, stats.totalDamageDealtToday || ((stats.slapsPlayedToday || 0) * 120)),
-      target: 5000
+      current: Math.min(60, stats.totalDamageDealtToday || ((stats.slapsPlayedToday || 0) * 120)),
+      target: 60
     },
     {
       id: 'defeat_2_chars',
@@ -413,8 +437,8 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
           <span className="text-slate-950 font-black text-xs tracking-wider uppercase opacity-80">
             YOUR BALANCE
           </span>
-          <h3 className="text-3.5xl font-black text-slate-950 tracking-tight mt-1 leading-none">
-            {stats.coins.toLocaleString()} SP
+          <h3 className="text-3.5xl font-black text-slate-950 tracking-tight mt-1 leading-none flex items-baseline">
+            <AnimatedOdometer value={stats.coins} suffix="SP" />
           </h3>
         </div>
 
@@ -458,9 +482,11 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
           </div>
 
           <button
+            id="ad-button"
+            data-testid="watch-ad-btn"
             onClick={startWatchingAd}
             disabled={adsWatchedToday >= 20}
-            className={`px-3.5 py-1.5 rounded-xl border-2 border-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all ${
+            className={`ad-button watch-ad-btn px-3.5 py-1.5 rounded-xl border-2 border-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all ${
               adsWatchedToday >= 20
                 ? 'bg-slate-800 text-slate-500 cursor-not-allowed border-slate-900 shadow-none'
                 : 'bg-[#FF3B77] hover:bg-[#E33D6F] text-white'
@@ -471,6 +497,53 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
           </button>
         </div>
       </div>
+
+      {/* Adsterra Sponsor Banner on Home Page */}
+      <AdsterraBanner />
+
+      {/* New Player Starter Pack Bonus Banner */}
+      {!stats.hasClaimedStarterPack && (
+        <motion.div
+          initial={{ scale: 0.96, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 rounded-[24px] border-4 border-slate-900 p-3.5 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] text-slate-950 flex flex-col gap-2 relative overflow-hidden"
+          id="starter-pack-bonus-card"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-11 h-11 bg-white border-3 border-slate-900 rounded-[14px] flex items-center justify-center text-xl shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] shrink-0">
+                🎁
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-900 bg-white/80 px-1.5 py-0.2 rounded-md border border-slate-900">
+                    Welcome Gift
+                  </span>
+                  <Sparkles className="w-3.5 h-3.5 text-white fill-white" />
+                </div>
+                <h3 className="text-sm font-black text-slate-950 leading-tight mt-0.5">
+                  Starter Pack Bonus
+                </h3>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleClaimStarterPack}
+              className="bg-slate-950 hover:bg-slate-800 text-amber-300 font-black text-xs px-3 py-2 rounded-[14px] border-2 border-slate-900 shadow-[2px_2px_0px_0px_#000] active:scale-95 transition-all cursor-pointer flex items-center gap-1 shrink-0"
+            >
+              <Gift className="w-3.5 h-3.5 text-amber-300" />
+              <span>Claim +100 SP</span>
+            </button>
+          </div>
+
+          <div className="bg-slate-950/15 border border-slate-900/20 rounded-xl px-2.5 py-1 flex items-center justify-between text-[10.5px] font-black text-slate-950">
+            <span>🪙 +100 SP Starter Pack</span>
+            <span>⚡ +50 Slaps Bonus</span>
+            <span>🏆 Level 1 Booster</span>
+          </div>
+        </motion.div>
+      )}
 
       {/* Daily Bonus Card & Stats Grid */}
       <div 
@@ -1147,13 +1220,14 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
               </p>
 
               {/* Video Player Box */}
-              <div className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl p-6 my-4 relative overflow-hidden flex flex-col items-center justify-center min-h-[140px]">
+              <div className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 my-3 relative overflow-hidden flex flex-col items-center justify-center min-h-[140px]">
                 {adPlaying ? (
                   <>
-                    <div className="w-12 h-12 rounded-full border-4 border-amber-400 border-t-transparent animate-spin mb-3" />
-                    <span className="text-xs font-black text-amber-300 uppercase tracking-widest animate-pulse">
+                    <div className="w-10 h-10 rounded-full border-4 border-amber-400 border-t-transparent animate-spin mb-2" />
+                    <span className="text-xs font-black text-amber-300 uppercase tracking-widest animate-pulse mb-2">
                       Playing Advertisement... {adProgress}%
                     </span>
+                    <RewardedAdScript />
                   </>
                 ) : (
                   <>

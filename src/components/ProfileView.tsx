@@ -75,10 +75,10 @@ export default function ProfileView({
   const equippedFrame = stats.equippedFrame || equippedBadgeObj.frameType || 'none';
   const hasGoldenName = equippedBadgeObj.hasGoldenName || currentTitle === 'Legend' || currentTitle === 'Grand Master';
 
-  // Dynamic values with fallbacks
-  const bestCombo = stats.bestCombo ?? 18;
-  const daysActive = stats.daysActive ?? 12;
-  const referrals = stats.referrals ?? 3;
+  // Dynamic values with clean zero defaults for new accounts
+  const bestCombo = stats.bestCombo ?? 0;
+  const daysActive = stats.daysActive ?? 0;
+  const referrals = stats.referrals ?? 0;
 
   const handleToggleSound = () => {
     sound.playSlap();
@@ -147,16 +147,9 @@ export default function ProfileView({
             ? 'bg-gradient-to-r from-amber-400 via-yellow-200 to-amber-500 p-1.5 border-4 border-amber-500 shadow-[0_0_20px_rgba(251,191,36,0.8)] animate-pulse'
             : 'bg-[#FFD043] border-4 border-slate-900 shadow-[3.5px_4px_0px_0px_rgba(15,23,42,1)]'
         }`}>
-          {/* Green Smile Face Circle */}
-          <div className="w-20 h-20 bg-[#00D09E] border-4 border-slate-900 rounded-full flex items-center justify-center relative">
-            <svg viewBox="0 0 100 100" className="w-13 h-13 text-slate-950 fill-none stroke-current stroke-[8.5px] stroke-linecap-round">
-              {/* Left Smiling Eye */}
-              <path d="M22 42 Q31 30 40 42" />
-              {/* Right Smiling Eye */}
-              <path d="M60 42 Q69 30 78 42" />
-              {/* Smiling mouth */}
-              <path d="M30 65 Q50 82 70 65" />
-            </svg>
+          {/* Smiling Face Mascot Avatar Circle */}
+          <div className="w-20 h-20 bg-amber-300 border-4 border-slate-900 rounded-full flex items-center justify-center relative shadow-inner">
+            <span className="text-4xl select-none leading-none">😊</span>
           </div>
         </div>
         

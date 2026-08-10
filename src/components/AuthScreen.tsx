@@ -1,10 +1,13 @@
 import { useState, FormEvent } from 'react';
 import { motion } from 'motion/react';
-import { User, Mail, Lock, Gift, Sparkles, LogIn, UserPlus, ArrowRight, Globe, ShieldAlert, RefreshCw, Check } from 'lucide-react';
+import { User, Mail, Lock, Gift, Sparkles, LogIn, UserPlus, ArrowRight, RefreshCw, Check, KeyRound, Globe, Info } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { detectUserCountry, ALLOWED_COUNTRIES } from '../utils/countryGuard';
+import { registerUserInFirebase, loginUserInFirebase } from '../lib/firebase';
+import LandingPage from './LandingPage';
 
 export interface AuthUser {
+  uid?: string;
   username: string;
   email: string;
   myReferralCode: string;
@@ -14,11 +17,10 @@ export interface AuthUser {
 
 interface AuthScreenProps {
   onLoginSuccess: (user: AuthUser, isNewUser: boolean) => void;
-  onSkipDemo?: () => void;
 }
 
-export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenProps) {
-  const [mode, setMode] = useState<'login' | 'signup'>('signup');
+export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
+  const [mode, setMode] = useState<'landing' | 'login' | 'signup'>('landing');
 
   // Form states
   const [username, setUsername] = useState('');
@@ -26,29 +28,46 @@ export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenPro
   const [password, setPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [unregisteredAccount, setUnregisteredAccount] = useState<string | null>(null);
+  const [suggestedUsername, setSuggestedUsername] = useState<string | null>(null);
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+
+  // Password requirement real-time checks
+  const hasMinLength = password.length >= 6;
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumberOrSymbol = /[0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+  const isPasswordValid = hasMinLength;
 
   // Country detection & restriction states
   const [isDetectingCountry, setIsDetectingCountry] = useState(false);
   const [isCountryRestricted, setIsCountryRestricted] = useState(false);
   const [detectedLocationName, setDetectedLocationName] = useState('');
 
-  // Handle Sign Up
+  // Handle Sign Up via Firebase Auth & Firestore
   const handleSignUp = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setUnregisteredAccount(null);
+    setSuggestedUsername(null);
+    setRegisteredEmail(null);
 
-    if (!username.trim()) {
-      setErrorMessage('Please enter a username.');
-      sound.playError();
-      return;
-    }
-    if (!email.trim() || !email.includes('@')) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanUsername = username.trim() || (cleanEmail.includes('@') ? cleanEmail.split('@')[0] : cleanEmail);
+
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       setErrorMessage('Please enter a valid email address.');
       sound.playError();
       return;
     }
-    if (password.length < 4) {
-      setErrorMessage('Password must be at least 4 characters.');
+    if (!cleanUsername) {
+      setErrorMessage('Please enter a username.');
+      sound.playError();
+      return;
+    }
+    if (!isPasswordValid) {
+      setErrorMessage('Password must be at least 6 characters long.');
       sound.playError();
       return;
     }
@@ -65,47 +84,96 @@ export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenPro
       return;
     }
 
-    const cleanRefCode = referralCode.trim().toUpperCase();
-    const generatedMyCode = `SLAP-${username.trim().toUpperCase()}`;
+    setIsSubmitting(true);
+    try {
+      const cleanRefCode = referralCode.trim().toUpperCase();
+      const countryStr = `${location.countryName} ${location.flag}`;
 
-    const newUser: AuthUser = {
-      username: username.trim(),
-      email: email.trim(),
-      myReferralCode: generatedMyCode,
-      referredByCode: cleanRefCode || undefined,
-      country: `${location.countryName} ${location.flag}`
-    };
+      const { uid, stats } = await registerUserInFirebase({
+        username: cleanUsername,
+        email: cleanEmail,
+        password,
+        referralCode: cleanRefCode || undefined,
+        country: countryStr
+      });
 
-    sound.playSuccess();
-    onLoginSuccess(newUser, true);
+      const newUser: AuthUser = {
+        uid,
+        username: stats.username || cleanUsername,
+        email: stats.email || cleanEmail,
+        myReferralCode: stats.myReferralCode || `SLAP-${cleanUsername.toUpperCase()}`,
+        referredByCode: cleanRefCode || undefined,
+        country: countryStr
+      };
+
+      sound.playSuccess();
+      onLoginSuccess(newUser, true);
+    } catch (err: any) {
+      sound.playError();
+      console.error('Sign up error:', err);
+      if (err.code === 'auth/username-already-in-use' || err.message?.includes('username')) {
+        const suggestion = err.suggestedUsername || `${cleanUsername}${Math.floor(100 + Math.random() * 899)}`;
+        setSuggestedUsername(suggestion);
+        setErrorMessage(`This username "${cleanUsername}" is already taken. Please choose another username.`);
+      } else if (err.code === 'auth/email-already-in-use' || err.message?.includes('email')) {
+        setRegisteredEmail(cleanEmail);
+        setErrorMessage(`This email "${cleanEmail}" is already registered. Please log in instead.`);
+      } else if (err.code === 'auth/weak-password') {
+        setErrorMessage('Password is too weak. Please use at least 6 characters.');
+      } else {
+        setErrorMessage(err.message || 'Server signup failed. Please try again.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  // Helper to bypass/select country in dev or testing if user desires
-  const handleSelectSimulatedCountry = (countryObj: typeof ALLOWED_COUNTRIES[0]) => {
+  // Helper to select country and finish signup
+  const handleSelectSimulatedCountry = async (countryObj: typeof ALLOWED_COUNTRIES[0]) => {
     sound.playSuccess();
     setIsCountryRestricted(false);
     
     const cleanRefCode = referralCode.trim().toUpperCase();
-    const generatedMyCode = `SLAP-${(username.trim() || 'USER').toUpperCase()}`;
+    const cleanUsername = username.trim() || 'AfricanSlapper';
+    const cleanEmail = (email.trim() || `user_${Date.now()}@slapearn.app`).toLowerCase();
+    const countryStr = `${countryObj.name} ${countryObj.flag}`;
 
-    const newUser: AuthUser = {
-      username: username.trim() || 'AfricanSlapper',
-      email: email.trim() || 'user@slapearn.app',
-      myReferralCode: generatedMyCode,
-      referredByCode: cleanRefCode || undefined,
-      country: `${countryObj.name} ${countryObj.flag}`
-    };
+    setIsSubmitting(true);
+    try {
+      const { uid, stats } = await registerUserInFirebase({
+        username: cleanUsername,
+        email: cleanEmail,
+        password: password || 'SlapEarn123!',
+        referralCode: cleanRefCode || undefined,
+        country: countryStr
+      });
 
-    onLoginSuccess(newUser, true);
+      const newUser: AuthUser = {
+        uid,
+        username: stats.username || cleanUsername,
+        email: stats.email || cleanEmail,
+        myReferralCode: stats.myReferralCode || `SLAP-${cleanUsername.toUpperCase()}`,
+        country: countryStr
+      };
+
+      onLoginSuccess(newUser, true);
+    } catch (err: any) {
+      sound.playError();
+      setErrorMessage(err.message || 'Signup failed.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  // Handle Login
-  const handleLogin = (e: FormEvent) => {
+  // Handle Login via Firebase Auth & Firestore
+  const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setUnregisteredAccount(null);
 
-    if (!email.trim()) {
-      setErrorMessage('Please enter your email or username.');
+    const inputKey = email.trim().toLowerCase();
+    if (!inputKey) {
+      setErrorMessage('Please enter your registered email or username.');
       sound.playError();
       return;
     }
@@ -115,24 +183,45 @@ export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenPro
       return;
     }
 
-    // Mock successful login
-    const derivedUsername = email.includes('@') ? email.split('@')[0] : email;
-    const existingUser: AuthUser = {
-      username: derivedUsername,
-      email: email.includes('@') ? email : `${email}@slapearn.app`,
-      myReferralCode: `SLAP-${derivedUsername.toUpperCase()}`,
-      country: 'South Africa 🇿🇦'
-    };
+    setIsSubmitting(true);
+    try {
+      const { uid, stats } = await loginUserInFirebase(inputKey, password);
+      
+      const existingUser: AuthUser = {
+        uid,
+        username: stats.username || 'Slapper',
+        email: stats.email || inputKey,
+        myReferralCode: stats.myReferralCode || `SLAP-${(stats.username || 'SLAPPER').toUpperCase()}`,
+        country: stats.country || 'South Africa 🇿🇦'
+      };
 
-    sound.playSuccess();
-    onLoginSuccess(existingUser, false);
+      sound.playSuccess();
+      onLoginSuccess(existingUser, false);
+    } catch (err: any) {
+      sound.playError();
+      console.error('Login error:', err);
+      if (err.code === 'auth/user-not-found' || err.message?.includes('not found') || err.message?.includes('sign up first')) {
+        setUnregisteredAccount(inputKey);
+        setErrorMessage(`Account not found for "${inputKey}". Please sign up first.`);
+      } else if (err.code === 'auth/wrong-password') {
+        setErrorMessage('Incorrect password. Please check your password and try again.');
+      } else if (err.code === 'auth/invalid-credential') {
+        setErrorMessage('Invalid credentials. If you do not have an account yet, please click Sign Up.');
+      } else {
+        setErrorMessage(err.message || 'Server login failed. Please check your network connection.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  if (mode === 'landing') {
+    return <LandingPage onGetStarted={(target) => setMode(target)} />;
+  }
 
   return (
     <div className="min-h-screen bg-[#FFFDF7] flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
-      {/* Playful background decorative shapes */}
-      <div className="absolute top-10 left-6 w-16 h-16 bg-[#FF3B77] rounded-full border-3 border-slate-900 opacity-20 animate-pulse pointer-events-none" />
-      <div className="absolute bottom-12 right-8 w-24 h-24 bg-[#A855F7] rounded-3xl border-3 border-slate-900 opacity-20 -rotate-12 pointer-events-none" />
+      {/* Clean background without floating shapes */}
 
       {/* COUNTRY RESTRICTION SCREEN OVERLAY */}
       {isCountryRestricted ? (
@@ -228,15 +317,28 @@ export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenPro
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          className="w-full max-w-[320px] sm:max-w-[340px] bg-white border-3 border-slate-900 rounded-[20px] p-3.5 sm:p-4 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] relative z-10"
+          className="w-full max-w-[320px] sm:max-w-[340px] bg-white border-3 border-slate-900 rounded-[20px] p-3.5 sm:p-4 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] relative z-10 flex flex-col"
         >
+          {/* Top navigation back to Landing Page */}
+          <button
+            type="button"
+            onClick={() => setMode('landing')}
+            className="text-slate-500 hover:text-slate-900 font-extrabold text-[10px] flex items-center gap-1 mb-2 self-start cursor-pointer group"
+          >
+            <Info className="w-3 h-3 text-[#FF3B77] group-hover:scale-110 transition-transform" />
+            <span>← View Site Details & Overview</span>
+          </button>
+
           {/* App Logo Header */}
           <div className="flex flex-col items-center text-center mb-2.5">
             <div className="w-9 h-9 bg-[#FFEED1] border-2 border-slate-900 rounded-lg flex items-center justify-center text-xl shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] mb-1">
               👋
             </div>
-            <h1 className="text-xl font-black text-slate-950 tracking-tight flex items-center gap-1">
-              SlapEarn <span className="text-[#FF3B77]">.io</span>
+            <h1 className="text-xl font-black text-slate-950 tracking-tight flex items-center gap-1.5">
+              <span>SlapEarn</span>
+              <span className="bg-[#FFD043] text-slate-950 font-black text-[10px] px-1.5 py-0.5 rounded-md border border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] font-mono leading-none tracking-tight">
+                .io
+              </span>
             </h1>
             <p className="text-slate-500 font-bold text-[10px] mt-0.5">
               {mode === 'signup' ? 'Create an account to start earning SP!' : 'Welcome back! Log in to your account.'}
@@ -274,8 +376,59 @@ export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenPro
 
           {/* Error Alert */}
           {errorMessage && (
-            <div className="bg-rose-50 border-2 border-rose-500 rounded-xl p-2 mb-3 text-[11px] font-bold text-rose-800 text-center animate-shake">
-              ⚠️ {errorMessage}
+            <div className="bg-rose-50 border-2 border-rose-500 rounded-xl p-2.5 mb-3 text-[11px] font-bold text-rose-900 text-center animate-shake flex flex-col items-center gap-2">
+              <div>⚠️ {errorMessage}</div>
+              {suggestedUsername && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSuccess();
+                    setUsername(suggestedUsername);
+                    setErrorMessage('');
+                    setSuggestedUsername(null);
+                  }}
+                  className="w-full bg-[#10B981] hover:bg-emerald-600 text-white font-black text-xs py-2 px-3 rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Use Available Username: "{suggestedUsername}" →</span>
+                </button>
+              )}
+              {registeredEmail && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSuccess();
+                    setEmail(registeredEmail);
+                    setMode('login');
+                    setErrorMessage('');
+                    setRegisteredEmail(null);
+                  }}
+                  className="w-full bg-[#3B82F6] hover:bg-blue-600 text-white font-black text-xs py-2 px-3 rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Switch to Login for "{registeredEmail}" →</span>
+                </button>
+              )}
+              {unregisteredAccount && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSuccess();
+                    setEmail(unregisteredAccount);
+                    if (!username) {
+                      const derivedUser = unregisteredAccount.includes('@') ? unregisteredAccount.split('@')[0] : unregisteredAccount;
+                      setUsername(derivedUser);
+                    }
+                    setMode('signup');
+                    setErrorMessage('');
+                    setUnregisteredAccount(null);
+                  }}
+                  className="w-full bg-[#A855F7] hover:bg-purple-600 text-white font-black text-xs py-2 px-3 rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Create Account for "{unregisteredAccount}" Now →</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -312,16 +465,48 @@ export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenPro
 
               {/* Password */}
               <div>
-                <label className="text-[11px] font-black text-slate-800 uppercase tracking-wide block mb-0.5 flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-slate-500" /> Password
-                </label>
+                <div className="flex items-center justify-between mb-0.5">
+                  <label className="text-[11px] font-black text-slate-800 uppercase tracking-wide flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-slate-500" /> Password
+                  </label>
+                  {password ? (
+                    <span className={`text-[9.5px] font-black px-1.5 py-0.2 rounded-md ${isPasswordValid ? 'bg-emerald-100 text-emerald-800 border border-emerald-400' : 'bg-amber-100 text-amber-800 border border-amber-400'}`}>
+                      {isPasswordValid ? '✓ Requirements Met' : 'Incomplete'}
+                    </span>
+                  ) : (
+                    <span className="text-[9.5px] font-bold text-slate-400">Google passwords supported</span>
+                  )}
+                </div>
                 <input
                   type="password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
                   className="w-full bg-slate-50 border-2 border-slate-900 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#A855F7]"
                 />
+
+                {/* Real-time Password Requirements Checklist */}
+                <div className="mt-1.5 bg-slate-50 border border-slate-300 rounded-xl p-2 space-y-1">
+                  <div className="text-[9.5px] font-black text-slate-600 uppercase tracking-wider flex items-center gap-1">
+                    <KeyRound className="w-3 h-3 text-purple-600" />
+                    <span>Password Requirements:</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-1 text-[10px] font-bold">
+                    <div className={`flex items-center gap-1.5 ${hasMinLength ? 'text-emerald-700 font-black' : 'text-slate-400'}`}>
+                      <Check className={`w-3 h-3 shrink-0 ${hasMinLength ? 'text-emerald-600 stroke-[3]' : 'text-slate-300'}`} />
+                      <span>At least 6 characters</span>
+                    </div>
+                    <div className={`flex items-center gap-1.5 ${hasLetter ? 'text-emerald-700 font-black' : 'text-slate-400'}`}>
+                      <Check className={`w-3 h-3 shrink-0 ${hasLetter ? 'text-emerald-600 stroke-[3]' : 'text-slate-300'}`} />
+                      <span>Contains letters (A-Z, a-z)</span>
+                    </div>
+                    <div className={`flex items-center gap-1.5 ${hasNumberOrSymbol ? 'text-emerald-700 font-black' : 'text-slate-400'}`}>
+                      <Check className={`w-3 h-3 shrink-0 ${hasNumberOrSymbol ? 'text-emerald-600 stroke-[3]' : 'text-slate-300'}`} />
+                      <span>Contains numbers or symbols</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Referral Code Field */}
@@ -343,21 +528,15 @@ export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenPro
                 </p>
               </div>
 
-              {/* Auto Country Detection Indicator */}
-              <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 rounded-lg px-2.5 py-1 text-[10px] font-bold text-emerald-800">
-                <Globe className="w-3 h-3 text-emerald-600 shrink-0" />
-                <span>Auto-detects country on signup (African regions)</span>
-              </div>
-
               <button
                 type="submit"
-                disabled={isDetectingCountry}
+                disabled={isDetectingCountry || isSubmitting}
                 className="w-full font-black text-xs py-2.5 rounded-xl border-3 border-slate-900 bg-[#A855F7] text-white hover:bg-purple-600 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer mt-1 flex items-center justify-center gap-1.5 disabled:opacity-60"
               >
-                {isDetectingCountry ? (
+                {isDetectingCountry || isSubmitting ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Detecting Country...</span>
+                    <span>Connecting to Server...</span>
                   </>
                 ) : (
                   <>
@@ -397,45 +576,24 @@ export default function AuthScreen({ onLoginSuccess, onSkipDemo }: AuthScreenPro
                 />
               </div>
 
-              {/* Quick Demo Helper for Admin */}
-              <div className="bg-[#FFF8E7] border-2 border-amber-400 rounded-xl p-2 text-center shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
-                <span className="text-[10px] font-bold text-amber-900 block mb-1">
-                  ⚡ Demo Admin Account Test:
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.playSuccess();
-                    setEmail('aiddict009@gmail.com');
-                    setPassword('admin123');
-                  }}
-                  className="w-full text-[10.5px] font-black bg-slate-900 text-amber-300 px-2.5 py-1 rounded-lg border border-slate-900 shadow-[1px_1px_0px_0px_#000] cursor-pointer hover:bg-slate-800 transition-transform active:scale-95"
-                >
-                  Click to Auto-fill Admin (aiddict009@gmail.com)
-                </button>
-              </div>
-
               <button
                 type="submit"
-                className="w-full font-black text-xs py-2.5 rounded-xl border-3 border-slate-900 bg-[#FF3B77] text-white hover:bg-rose-600 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer mt-1 flex items-center justify-center gap-1.5"
+                disabled={isSubmitting}
+                className="w-full font-black text-xs py-2.5 rounded-xl border-3 border-slate-900 bg-[#FF3B77] text-white hover:bg-rose-600 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer mt-1 flex items-center justify-center gap-1.5 disabled:opacity-60"
               >
-                <span>Log In to Account</span>
-                <LogIn className="w-3.5 h-3.5" />
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Authenticating...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Log In to Account</span>
+                    <LogIn className="w-3.5 h-3.5" />
+                  </>
+                )}
               </button>
             </form>
-          )}
-
-          {/* Demo / Guest Mode option */}
-          {onSkipDemo && (
-            <div className="mt-3 text-center border-t border-slate-200 pt-2">
-              <button
-                type="button"
-                onClick={onSkipDemo}
-                className="text-[11px] font-bold text-slate-500 hover:text-slate-900 underline cursor-pointer"
-              >
-                Continue as Guest (Demo Account)
-              </button>
-            </div>
           )}
         </motion.div>
       )}

@@ -6,6 +6,7 @@ import { UserStats, Transaction, EconomyConfig } from '../types';
 import { HAND_UPGRADES } from '../handsData';
 import { CharacterVisual } from './CharacterVisual';
 import SlapAMole from './SlapAMole';
+import { AdsterraBanner } from './AdsterraAds';
 
 export interface SlapCharacter {
   id: string;
@@ -1070,9 +1071,11 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
         <div className="w-full z-10 mt-3" onClick={(e) => e.stopPropagation()}>
           <div className="flex gap-2.5">
             <button
+              id="ad-button"
+              data-testid="watch-ad-btn"
               onClick={() => handleSlapClick()}
               disabled={isDefeatedTransition}
-              className={`flex-1 py-3.5 rounded-2xl font-black text-xs sm:text-sm uppercase border-3 border-slate-950 tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-[3px_3.5px_0px_0px_rgba(15,23,42,1)] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-[1.5px_2px_0px_0px_rgba(15,23,42,1)] ${
+              className={`ad-button watch-ad-btn flex-1 py-3.5 rounded-2xl font-black text-xs sm:text-sm uppercase border-3 border-slate-950 tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-[3px_3.5px_0px_0px_rgba(15,23,42,1)] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-[1.5px_2px_0px_0px_rgba(15,23,42,1)] ${
                 isDefeatedTransition
                   ? 'bg-slate-100 text-slate-400 border-slate-300 shadow-none cursor-not-allowed'
                   : slapEnergy > 0
@@ -1096,6 +1099,7 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
             </button>
 
             <button
+              id="pat-button"
               onClick={() => handlePatClick()}
               disabled={isDefeatedTransition || characterState.hp <= 0}
               className={`flex-1 py-3.5 rounded-2xl font-black text-xs sm:text-sm uppercase border-3 border-slate-950 tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-[3px_3.5px_0px_0px_rgba(15,23,42,1)] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-[1.5px_2px_0px_0px_rgba(15,23,42,1)] ${
@@ -1269,22 +1273,20 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
 
       {/* Sponsor Quick Commercial Overlay */}
       {isWatchingQuickAd && (
-        <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-[#FFEED1] border-4 border-slate-950 rounded-[32px] p-6 text-center max-w-[320px] w-full shadow-[5px_6px_0px_0px_rgba(0,0,0,1)] relative overflow-hidden animate-pulse">
-            <div className="w-12 h-12 rounded-full bg-white border-3 border-slate-950 flex items-center justify-center text-rose-500 mb-3 mx-auto shadow-[2.5px_3px_0px_0px_rgba(0,0,0,1)]">
+        <div className="fixed inset-0 bg-[#0F172A]/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-[#FFEED1] border-4 border-slate-950 rounded-[32px] p-5 text-center max-w-[340px] w-full shadow-[5px_6px_0px_0px_rgba(0,0,0,1)] relative overflow-hidden flex flex-col items-center">
+            <div className="w-10 h-10 rounded-full bg-white border-3 border-slate-950 flex items-center justify-center text-rose-500 mb-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
               📺
             </div>
-            <h4 className="text-base font-black text-slate-950 tracking-tight">Sponsor Commercial</h4>
-            <p className="text-slate-600 text-[11px] font-bold mt-1">
-              Restoring slaps energy balance in...
+            <h4 className="text-sm font-black text-slate-950 tracking-tight">Sponsor Commercial</h4>
+            <p className="text-slate-600 text-[10px] font-bold mt-0.5 mb-2">
+              Restoring slaps energy balance in {quickAdCountdown}s...
             </p>
-            
-            <div className="mt-4 w-16 h-16 rounded-full bg-white border-4 border-slate-950 flex items-center justify-center text-slate-950 font-black text-2xl shadow-[3px_3.5px_0px_0px_rgba(0,0,0,1)] mx-auto">
-              {quickAdCountdown}
-            </div>
 
-            <span className="text-[10px] font-black text-[#FF3B77] uppercase tracking-widest mt-4 block">
-              Sponsor: Chibi-Cola Company
+            <AdsterraBanner />
+
+            <span className="text-[10px] font-black text-[#FF3B77] uppercase tracking-widest mt-2 block">
+              Sponsor: Adsterra Partner Ad
             </span>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Play, Volume2, VolumeX, Award, Clock, ArrowLeft, RotateCw, CheckCircle, Sparkles, Zap, Flame, ExternalLink, ShieldCheck } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { AdCampaign, Transaction, UserStats } from '../types';
+import { AdsterraBanner, AdsterraNative } from './AdsterraAds';
 
 interface AdsProps {
   updateCoinsAndXp: (coins: number, xp: number, category: Transaction['category'], title: string) => void;
@@ -245,6 +246,12 @@ export default function Ads({ updateCoinsAndXp, addNotification, stats, updateSt
                 {watchedToday} / 20 Today
               </div>
             </div>
+
+            {/* Adsterra Banner Ad */}
+            <AdsterraBanner />
+
+            {/* Adsterra Native Ad */}
+            <AdsterraNative />
 
             {/* Simulated Banner Ad Widget */}
             <div className="bg-gradient-to-r from-purple-600 to-indigo-700 border-3 border-slate-900 rounded-2xl p-3 text-white shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between">

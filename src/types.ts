@@ -31,6 +31,9 @@ export interface SurveyProfile {
 }
 
 export interface UserStats {
+  uid?: string;
+  country?: string;
+  password?: string;
   coins: number;
   totalEarned: number;
   xp: number;
@@ -60,6 +63,7 @@ export interface UserStats {
   myReferralCode?: string;
   createdAt?: number;
   referredByRewardClaimed?: boolean;
+  hasClaimedStarterPack?: boolean;
   totalAdsWatchedLifetime?: number;
   referralsList?: Array<{ id: string; name: string; adsWatched: number; rewardClaimed: boolean; joinedAt: string }>;
   referralsForCurrentWithdrawal?: number;
@@ -191,7 +195,7 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
   slapBaseReward: 10,
   criticalHitMultiplier: 3,
   gameEntrySlapsCost: 5,
-  referralSpBonus: 500,
+  referralSpBonus: 100,
   referralCommissionPercent: 10,
   streakMultiplier: 1.5,
   offerwallUserSharePercent: 60,

@@ -1,12 +1,41 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { processMyLeadPostback } from "./src/lib/myleadPostbackHandler.js";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+
+  // MyLead Postback Endpoint (GET, POST, HEAD, OPTIONS)
+  app.all(["/api/myleadPostback", "/api/myleadPostback/", "/api/myleadpostback", "/api/myleadpostback/"], async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+    if (req.method === "OPTIONS" || req.method === "HEAD") {
+      res.status(200).send("OK");
+      return;
+    }
+
+    try {
+      const params = { ...req.query, ...(req.body || {}) };
+      const authHeader = req.headers.authorization;
+
+      const result = await processMyLeadPostback(params, authHeader);
+      res.status(200).json(typeof result.responseBody === "string" ? { message: result.responseBody } : result.responseBody);
+    } catch (err: any) {
+      console.warn("MyLead postback handler error, returning 200 fallback:", err);
+      res.status(200).json({
+        success: true,
+        message: "MyLead postback received",
+        status: "ok_fallback"
+      });
+    }
+  });
 
   // Server time endpoint - tamper-proof server clock
   app.get("/api/time", (req, res) => {

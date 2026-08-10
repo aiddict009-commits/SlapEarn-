@@ -4,6 +4,7 @@ import { PlayCircle, RotateCw, ClipboardList, Users, Hand, X, Gift, Trophy, Spar
 import { UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from '../types';
 import { sound } from '../utils/sound';
 import { proxyGuard, NetworkSecurityStatus } from '../utils/proxyGuard';
+import { triggerRewardedAdScript, RewardedAdScript } from './AdsterraAds';
 
 interface OfferItem {
   id: string;
@@ -453,6 +454,7 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
     }
 
     sound.playSlap();
+    triggerRewardedAdScript();
     setActiveModal('ad');
     setIsAdPlaying(true);
     setAdFinished(false);
@@ -766,9 +768,11 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
           </div>
 
           <button
+            id="ad-button"
+            data-testid="watch-ad-btn"
             onClick={startAd}
             disabled={(stats.adsWatchedToday ?? 0) >= 20}
-            className={`font-black text-sm px-5 py-2 rounded-[16px] border-3 border-slate-900 text-slate-950 transition-all ${
+            className={`ad-button watch-ad-btn font-black text-sm px-5 py-2 rounded-[16px] border-3 border-slate-900 text-slate-950 transition-all ${
               (stats.adsWatchedToday ?? 0) >= 20
                 ? 'bg-slate-100 text-slate-400 border-slate-300 cursor-not-allowed shadow-none'
                 : 'bg-white hover:bg-[#FFEED1] active:scale-95 shadow-[1.5px_2px_0px_0px_rgba(15,23,42,1)]'
@@ -820,7 +824,13 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
           </div>
 
           <button
-            onClick={() => { sound.playSlap(); setActiveModal('survey'); }}
+            onClick={() => { 
+              sound.playSlap(); 
+              setSurveyTab('offerwalls');
+              setSelectedOfferwall(null);
+              setActiveOfferPrompt(null);
+              setActiveModal('survey'); 
+            }}
             className="font-black text-sm px-5 py-2 rounded-[16px] border-3 border-slate-900 bg-white hover:bg-[#FFEED1] text-slate-950 active:scale-95 transition-all"
           >
             Start
@@ -852,7 +862,7 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
       {/* --- MODALS --- */}
       <AnimatePresence>
         {activeModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4">
             {/* Backdrop */}
             <motion.div 
               initial={{ opacity: 0 }}
@@ -867,8 +877,8 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
               initial={{ scale: 0.9, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 30 }}
-              className={`bg-[#FDFBF2] border-4 border-slate-900 rounded-[32px] p-5 w-full relative shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] z-10 text-slate-900 max-h-[90vh] overflow-y-auto ${
-                activeModal === 'survey' ? 'max-w-md' : 'max-w-sm'
+              className={`bg-[#FDFBF2] border-4 border-slate-900 rounded-[28px] sm:rounded-[32px] w-full relative shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] z-10 text-slate-900 ${
+                activeModal === 'survey' ? 'max-w-4xl h-[92vh] max-h-[92vh] p-3 sm:p-5 flex flex-col overflow-hidden' : 'max-w-sm max-h-[90vh] p-5 overflow-y-auto'
               }`}
             >
               
@@ -902,9 +912,13 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                       </p>
                       
                       {/* Big clock ticker */}
-                      <div className="flex items-center gap-2 mt-6 bg-[#FFEAF0] border-3 border-slate-900 px-6 py-3 rounded-2xl text-2xl font-black text-[#FF3B77] shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)]">
+                      <div className="flex items-center gap-2 mt-4 bg-[#FFEAF0] border-3 border-slate-900 px-6 py-3 rounded-2xl text-2xl font-black text-[#FF3B77] shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)]">
                         <Clock className="w-6 h-6 stroke-[3px] animate-spin" />
                         <span>{adCountdown}s</span>
+                      </div>
+
+                      <div className="w-full mt-4">
+                        <RewardedAdScript />
                       </div>
                     </>
                   ) : adFinished ? (
@@ -1078,9 +1092,9 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
 
               {/* 3. OFFERWALLS & SURVEYS PROMPT MODAL */}
               {activeModal === 'survey' && (
-                <div className="flex flex-col py-1 text-slate-900">
+                <div className="flex flex-col h-full w-full text-slate-900 overflow-hidden">
                   {/* Top Header */}
-                  <div className="flex items-center gap-2.5 mb-3">
+                  <div className="flex items-center gap-2.5 mb-2.5 shrink-0 pr-8">
                     <div className="w-10 h-10 bg-[#4965FF] rounded-2xl border-3 border-slate-900 flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] shrink-0">
                       <ClipboardList className="w-5 h-5 text-white stroke-[2.5px]" />
                     </div>
@@ -1094,82 +1108,14 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                     </div>
                   </div>
 
-                  {/* Network Request Security Proxy / VPN Warning Banner */}
-                  {proxyStatus.isProxyDetected ? (
-                    <div className="bg-rose-950 text-white border-3 border-rose-500 rounded-2xl p-3.5 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] mb-3 flex flex-col gap-2">
-                      <div className="flex items-start gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center text-rose-400 shrink-0">
-                          <ShieldAlert className="w-4 h-4 stroke-[2.5px] animate-bounce" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <h4 className="font-black text-xs uppercase tracking-tight text-white">Offerwalls & Surveys Paused</h4>
-                            <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase">VPN / Proxy Active</span>
-                          </div>
-                          <p className="text-[10px] text-rose-200 font-medium leading-tight mt-0.5">
-                            Network request inspector flagged public proxy or VPN headers (<code className="font-mono text-amber-300">{proxyStatus.vpnType || 'X-Forwarded-For anomaly'}</code>). Tasks remain paused to prevent anti-fraud flags.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="bg-slate-900/90 border border-rose-500/30 rounded-xl p-2 text-[10px] text-slate-300 font-mono flex flex-col gap-0.5">
-                        <div className="flex justify-between items-center text-[9px] text-rose-300 font-extrabold uppercase">
-                          <span>Detected Reason:</span>
-                          <span className="text-amber-300">{proxyStatus.ip || 'Proxy IP'}</span>
-                        </div>
-                        <div className="text-slate-300 font-sans text-[10px]">
-                          {proxyStatus.reason}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <button
-                          onClick={handleRecheckProxy}
-                          disabled={isRecheckingProxy}
-                          className="flex-1 py-1.5 bg-[#FFD043] hover:bg-yellow-400 text-slate-950 font-black text-xs rounded-xl border-2 border-slate-950 shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <RotateCw className={`w-3.5 h-3.5 stroke-[2.5px] ${isRecheckingProxy ? 'animate-spin' : ''}`} />
-                          <span>{isRecheckingProxy ? 'Checking IP...' : 'Re-Check Connection 🔄'}</span>
-                        </button>
-
-                        <button
-                          onClick={() => proxyGuard.clearSecurityAlert()}
-                          className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-extrabold text-[9px] rounded-xl border border-slate-700 uppercase cursor-pointer shrink-0"
-                          title="Dev override"
-                        >
-                          Dev Clear
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl px-3 py-1.5 mb-3 flex items-center justify-between shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                      <div className="flex items-center gap-2 text-[11px] font-black text-emerald-950">
-                        <ShieldCheck className="w-4 h-4 text-emerald-600 stroke-[2.5px]" />
-                        <span>Network Connection Verified Clean (No Proxy/VPN)</span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          sound.playSlap();
-                          proxyGuard.simulateVpnDetection();
-                          addNotification('VPN Test Simulated', 'Proxy / VPN header anomaly triggered for testing!', 'info');
-                        }}
-                        className="text-[9px] font-bold text-slate-500 hover:text-slate-800 underline uppercase"
-                      >
-                        Test VPN Flag
-                      </button>
-                    </div>
-                  )}
-
                   {/* Mode Selector Tabs */}
-                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl border-2 border-slate-900 mb-3 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl border-2 border-slate-900 mb-2.5 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] shrink-0">
                     <button
                       onClick={() => {
                         sound.playSlap();
                         setSurveyTab('offerwalls');
-                        setSelectedOfferwall(null);
-                        setActiveOfferPrompt(null);
                       }}
-                      className={`py-1.5 text-xs font-black rounded-xl border-2 transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                      className={`py-2 text-xs font-black rounded-xl border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                         surveyTab === 'offerwalls'
                           ? 'bg-[#4965FF] text-white border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
                           : 'border-transparent text-slate-600 hover:text-slate-950'
@@ -1184,205 +1130,133 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                         setSelectedOfferwall(null);
                         setActiveOfferPrompt(null);
                       }}
-                      className={`py-1.5 text-xs font-black rounded-xl border-2 transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                      className={`py-2 text-xs font-black rounded-xl border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                         surveyTab === 'profile_survey'
                           ? 'bg-[#00D09E] text-slate-950 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
                           : 'border-transparent text-slate-600 hover:text-slate-950'
                       }`}
                     >
                       <span>
-                        📋 Survey Profile {stats.surveyProfile?.completedOnce ? '✓' : '(+500 SP)'}
+                        📋 Surveys {stats.surveyProfile?.completedOnce ? '✓' : '(+500 SP)'}
                       </span>
                     </button>
                   </div>
 
-                  {/* TAB 1: OFFERWALL PARTNERS */}
+                  {/* TAB 1: OFFERWALLS */}
                   {surveyTab === 'offerwalls' && (
-                    <div>
-                      {/* Active Offer Interactive Completion Prompt Overlay */}
-                      {activeOfferPrompt ? (
-                        <div className="bg-white border-3 border-slate-900 rounded-2xl p-4 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] flex flex-col items-center text-center">
-                          <span className="text-[10px] font-black text-[#4965FF] uppercase tracking-widest bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full mb-1.5">
-                            {activeOfferPrompt.type} • {activeOfferPrompt.time}
-                          </span>
-                          
-                          <h4 className="text-base font-black text-slate-950 leading-tight mb-1">
-                            {activeOfferPrompt.title}
-                          </h4>
-                          
-                          <div className="inline-flex items-center gap-1 text-emerald-600 font-mono font-black text-sm bg-emerald-50 border border-emerald-300 px-3 py-1 rounded-full my-2">
-                            <Sparkles className="w-4 h-4 text-emerald-500" />
-                            <span>+{activeOfferPrompt.rewardSp.toLocaleString()} SP Reward</span>
-                          </div>
-
-                          <p className="text-slate-500 text-xs font-bold leading-normal mb-3">
-                            {activeOfferPrompt.description}
-                          </p>
-
-                          {offerCompleting ? (
-                            <div className="w-full bg-slate-50 border-2 border-slate-900 p-3 rounded-xl">
-                              <div className="flex justify-between items-center text-[11px] font-black text-slate-800 mb-1.5">
-                                <span className="flex items-center gap-1">
-                                  <RotateCw className="w-3.5 h-3.5 text-[#4965FF] animate-spin" />
-                                  <span>
-                                    {offerProgress < 30 ? 'Connecting panel...' : offerProgress < 75 ? 'Analyzing responses...' : 'Verifying & granting reward...'}
-                                  </span>
-                                </span>
-                                <span className="font-mono text-[#4965FF]">{offerProgress}%</span>
-                              </div>
-
-                              <div className="w-full bg-slate-200 h-3 rounded-full border-2 border-slate-900 overflow-hidden">
-                                <div
-                                  className="bg-gradient-to-r from-[#4965FF] via-indigo-500 to-emerald-400 h-full transition-all duration-300"
-                                  style={{ width: `${offerProgress}%` }}
-                                />
-                              </div>
-                            </div>
-                          ) : offerCompletedSuccess ? (
-                            <div className="w-full bg-emerald-50 border-2 border-emerald-500 p-3 rounded-xl flex flex-col items-center text-emerald-900">
-                              <CheckCircle2 className="w-8 h-8 text-emerald-600 mb-1" />
-                              <span className="font-black text-sm">Offer Successfully Completed!</span>
-                              <span className="text-xs font-bold text-emerald-700 mt-0.5">
-                                +{activeOfferPrompt.rewardSp.toLocaleString()} SP Credited to Balance
-                              </span>
-
-                              <button
-                                onClick={() => {
-                                  sound.playSuccess();
-                                  setActiveOfferPrompt(null);
-                                  setOfferCompletedSuccess(false);
-                                }}
-                                className="mt-3 w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer"
-                              >
-                                Claim More Offers & SP
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="w-full flex gap-2">
-                              <button
-                                onClick={() => setActiveOfferPrompt(null)}
-                                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs rounded-xl border-2 border-slate-900 transition-all cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => startOfferCompletion(activeOfferPrompt)}
-                                className="flex-1 py-2.5 bg-[#4965FF] hover:bg-indigo-600 text-white font-black text-xs rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
-                              >
-                                <span>Start Offer</span>
-                                <ChevronRight className="w-4 h-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ) : selectedOfferwall ? (
-                        /* Partner Specific Offers Sub-View */
-                        <div className="flex flex-col gap-2">
-                          <button
-                            onClick={() => {
-                              sound.playSlap();
-                              setSelectedOfferwall(null);
-                            }}
-                            className="text-xs font-extrabold text-slate-600 hover:text-slate-900 flex items-center gap-1 self-start cursor-pointer mb-1"
-                          >
-                            <ArrowLeft className="w-3.5 h-3.5" />
-                            <span>Back to All Offerwalls</span>
-                          </button>
-
-                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="text-2xl">{selectedOfferwall.icon}</span>
-                              <div>
-                                <h4 className="font-black text-sm text-slate-950 leading-none">
-                                  {selectedOfferwall.name}
-                                </h4>
-                                <span className="text-[10px] font-bold text-slate-500 mt-0.5 block">
-                                  {selectedOfferwall.description}
-                                </span>
-                              </div>
-                            </div>
-                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border border-slate-900 ${selectedOfferwall.badgeColor}`}>
-                              {selectedOfferwall.badge}
+                    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                      {selectedOfferwall ? (
+                        <div className="flex-1 min-h-0 flex flex-col">
+                          {/* Back Header */}
+                          <div className="flex items-center justify-between mb-2 shrink-0">
+                            <button
+                              onClick={() => {
+                                sound.playSlap();
+                                setSelectedOfferwall(null);
+                              }}
+                              className="text-xs font-black text-slate-700 hover:text-slate-950 bg-slate-100 border-2 border-slate-900 px-3 py-1 rounded-xl shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] flex items-center gap-1 cursor-pointer"
+                            >
+                              <ArrowLeft className="w-3.5 h-3.5 stroke-[3px]" />
+                              <span>Back to Offerwalls</span>
+                            </button>
+                            <span className="text-xs font-black text-slate-950 flex items-center gap-1">
+                              <span>{selectedOfferwall.icon}</span>
+                              <span>{selectedOfferwall.name}</span>
                             </span>
                           </div>
 
-                          <span className="text-[11px] font-black uppercase text-slate-600 tracking-wider mt-1 block">
-                            Available Surveys & Offers ({selectedOfferwall.offers.length})
-                          </span>
-
-                          <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto pr-0.5">
-                            {selectedOfferwall.offers.map((offer) => (
-                              <div
-                                key={offer.id}
-                                className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between hover:bg-indigo-50/50 transition-all"
-                              >
-                                <div className="flex-1 pr-2">
-                                  <div className="flex items-center gap-1.5 mb-0.5">
-                                    <span className="text-[9px] font-black text-indigo-700 bg-indigo-100 border border-indigo-200 px-1.5 py-0.2 rounded">
-                                      {offer.type}
-                                    </span>
-                                    <span className="text-[9px] font-bold text-slate-400 flex items-center gap-0.5">
-                                      <Clock className="w-2.5 h-2.5" /> {offer.time}
-                                    </span>
-                                  </div>
-                                  <span className="text-xs font-black text-slate-950 block leading-tight">
-                                    {offer.title}
-                                  </span>
-                                </div>
-
-                                <button
-                                  onClick={() => startOfferCompletion(offer)}
-                                  className="py-1.5 px-3 bg-[#00D09E] hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl border-2 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all shrink-0 cursor-pointer"
+                          {selectedOfferwall.id === 'mylead' ? (
+                            /* Live MyLead Offerwall Responsive Iframe Container */
+                            <div className="w-full flex-1 min-h-0 bg-white rounded-2xl border-3 border-slate-900 overflow-hidden shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] relative">
+                              <iframe
+                                src="https://reward-me.eu/38da6ec4-8f23-11f1-8b2a-129a1c289511"
+                                title="MyLead Offerwall"
+                                className="w-full h-full border-none rounded-xl"
+                                style={{ width: '100%', height: '100%', border: 'none', WebkitOverflowScrolling: 'touch' }}
+                                allow="geolocation; microphone; camera; clipboard-write"
+                              />
+                            </div>
+                          ) : (
+                            /* Partner Offers Subview (e.g. MyLead Opinion Survey) */
+                            <div className="flex-1 overflow-y-auto pr-0.5 flex flex-col gap-2">
+                              {selectedOfferwall.offers.map((offer) => (
+                                <div
+                                  key={offer.id}
+                                  className="bg-white border-2 border-slate-900 rounded-2xl p-3 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between"
                                 >
-                                  +{offer.rewardSp.toLocaleString()} SP
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        /* All Offerwall Partner Cards Grid */
-                        <div className="flex flex-col gap-2">
-                          <span className="text-[11px] font-black uppercase text-slate-600 tracking-wider">
-                            Choose Partner Panel
-                          </span>
-
-                          <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto pr-0.5">
-                            {OFFERWALL_PARTNERS.map((partner) => (
-                              <div
-                                key={partner.id}
-                                onClick={() => {
-                                  sound.playSlap();
-                                  setSelectedOfferwall(partner);
-                                }}
-                                className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between hover:bg-[#FFEED1]/40 transition-all cursor-pointer group"
-                              >
-                                <div className="flex items-center gap-2.5">
-                                  <div className="w-9 h-9 bg-slate-100 border-2 border-slate-900 rounded-xl flex items-center justify-center text-lg shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] shrink-0">
-                                    {partner.icon}
-                                  </div>
                                   <div>
-                                    <div className="flex items-center gap-1.5">
-                                      <h4 className="font-black text-xs text-slate-950 group-hover:text-[#4965FF] transition-colors">
-                                        {partner.name}
-                                      </h4>
-                                      <span className={`text-[8px] font-black px-1.5 py-0.2 rounded-md ${partner.badgeColor}`}>
-                                        {partner.badge}
+                                    <div className="flex items-center gap-2 mb-0.5">
+                                      <span className="text-[10px] font-black uppercase text-[#4965FF] bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                                        {offer.type}
+                                      </span>
+                                      <span className="text-[10px] font-mono font-bold text-slate-500">
+                                        ⏱️ {offer.time}
                                       </span>
                                     </div>
-                                    <span className="text-[10px] font-bold text-slate-500 block leading-tight mt-0.5">
-                                      Avg: <strong className="text-slate-800 font-extrabold">{partner.avgReward}</strong> • {partner.estTime}
+                                    <h4 className="font-black text-xs text-slate-950 leading-snug">
+                                      {offer.title}
+                                    </h4>
+                                    <p className="text-[11px] font-medium text-slate-500 mt-0.5 line-clamp-1">
+                                      {offer.description}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => startOfferCompletion(offer)}
+                                    className="bg-[#00D09E] hover:bg-emerald-400 text-slate-950 font-black text-xs px-3.5 py-2 rounded-xl border-2 border-slate-900 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] shrink-0 ml-2 active:scale-95 transition-all cursor-pointer"
+                                  >
+                                    +{offer.rewardSp.toLocaleString()} SP
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        /* Offerwall Selection Options */
+                        <div className="flex-1 overflow-y-auto pr-0.5 flex flex-col gap-2.5">
+                          <span className="text-[11px] font-black uppercase text-slate-500 tracking-wider">
+                            Select an Offerwall Provider
+                          </span>
+
+                          {OFFERWALL_PARTNERS.map((partner) => (
+                            <div
+                              key={partner.id}
+                              onClick={() => {
+                                sound.playSlap();
+                                setSelectedOfferwall(partner);
+                              }}
+                              className="bg-white border-3 border-slate-900 rounded-2xl p-3 sm:p-3.5 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between hover:bg-indigo-50/70 transition-all cursor-pointer group"
+                            >
+                              <div className="flex items-start gap-2.5 sm:gap-3">
+                                <div className="w-10 h-10 sm:w-11 sm:h-11 bg-indigo-50 border-2 border-slate-900 rounded-2xl flex items-center justify-center text-xl sm:text-2xl shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] shrink-0 group-hover:scale-105 transition-transform">
+                                  {partner.icon}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                    <h4 className="font-black text-xs sm:text-sm text-slate-950 group-hover:text-[#4965FF] transition-colors">
+                                      {partner.name}
+                                    </h4>
+                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border border-slate-900 ${partner.badgeColor}`}>
+                                      {partner.badge}
                                     </span>
                                   </div>
-                                </div>
-
-                                <div className="flex items-center gap-1 text-[#4965FF] font-black text-xs group-hover:translate-x-0.5 transition-transform">
-                                  <span>Offers</span>
-                                  <ChevronRight className="w-4 h-4 stroke-[3px]" />
+                                  <p className="text-slate-500 text-[11px] sm:text-xs font-medium leading-snug mt-0.5">
+                                    {partner.description}
+                                  </p>
+                                  <div className="flex items-center gap-2.5 mt-1.5 text-[10px] font-extrabold text-slate-600">
+                                    <span>Avg: <strong className="text-emerald-600 font-mono font-black">{partner.avgReward}</strong></span>
+                                    <span>•</span>
+                                    <span>Est: <strong className="text-slate-900 font-black">{partner.estTime}</strong></span>
+                                  </div>
                                 </div>
                               </div>
-                            ))}
-                          </div>
+
+                              <div className="flex items-center gap-1 text-white bg-[#4965FF] font-black text-xs px-3 py-2 rounded-xl border-2 border-slate-900 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] group-hover:translate-x-0.5 transition-all shrink-0 ml-2">
+                                <span>Launch</span>
+                                <ChevronRight className="w-4 h-4 stroke-[3px]" />
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -1390,7 +1264,7 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
 
                   {/* TAB 2: SURVEY PROFILE */}
                   {surveyTab === 'profile_survey' && (
-                    <div className="flex flex-col py-1 text-slate-900">
+                    <div className="flex-1 overflow-y-auto pr-1 flex flex-col py-1 text-slate-900">
                       {/* Profile Header & Completion Stats */}
                       <div className="bg-[#EBF3FF] border-2 border-slate-900 rounded-2xl p-3 mb-3 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
                         <div className="flex justify-between items-center mb-1.5">
@@ -1824,13 +1698,9 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                                   🎁 Claim 100 SP
                                 </button>
                               ) : (
-                                <button
-                                  onClick={() => simulateFriendAds(ref.id)}
-                                  className="text-[8px] font-black bg-amber-100 text-amber-900 border border-amber-400 px-1.5 py-0.2 rounded hover:bg-amber-200 active:scale-95 transition-all cursor-pointer"
-                                  title="Simulate friend watching ads"
-                                >
-                                  +5 Ads
-                                </button>
+                                <span className="text-[9px] font-extrabold text-slate-500 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded-md">
+                                  {ref.adsWatched}/20 Ads
+                                </span>
                               )}
                             </div>
                           );

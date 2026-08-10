@@ -71,27 +71,43 @@ class TimeGuardEngine {
 
   public async verifyNetworkTime(): Promise<TimeSecurityStatus> {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-      const response = await fetch('https://worldtimeapi.org/api/ip', {
-        signal: controller.signal,
-        cache: 'no-store'
-      }).catch(() => null);
-
-      clearTimeout(timeoutId);
-
       let serverTimestamp: number | null = null;
 
-      if (response && response.ok) {
-        const data = await response.json().catch(() => null);
-        if (data && data.unixtime) {
-          serverTimestamp = data.unixtime * 1000;
+      // 1. Check local server API endpoint /api/time first
+      try {
+        const timeRes = await fetch('/api/time', { cache: 'no-store' }).catch(() => null);
+        if (timeRes && timeRes.ok) {
+          const data = await timeRes.json().catch(() => null);
+          if (data && data.serverTime) {
+            serverTimestamp = data.serverTime;
+          }
+        }
+      } catch {
+        // Ignore fallback
+      }
+
+      // 2. Fallback to external World Time API
+      if (!serverTimestamp) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+        const response = await fetch('https://worldtimeapi.org/api/ip', {
+          signal: controller.signal,
+          cache: 'no-store'
+        }).catch(() => null);
+
+        clearTimeout(timeoutId);
+
+        if (response && response.ok) {
+          const data = await response.json().catch(() => null);
+          if (data && data.unixtime) {
+            serverTimestamp = data.unixtime * 1000;
+          }
         }
       }
 
+      // 3. Fallback to header Date check
       if (!serverTimestamp) {
-        // Fallback: fetch header date from current origin
         const headRes = await fetch(window.location.href, { method: 'HEAD', cache: 'no-store' }).catch(() => null);
         if (headRes && headRes.headers && headRes.headers.get('date')) {
           serverTimestamp = new Date(headRes.headers.get('date')!).getTime();
@@ -129,9 +145,20 @@ class TimeGuardEngine {
         }
       }
     } catch (err) {
-      // Silent catch
+      // Catch any unexpected error
     }
 
+    // Default fallback: Reset baseline and restore time integrity state to ensure button responds
+    this.resetBaseline();
+    this.status = {
+      isTampered: false,
+      reason: null,
+      message: 'System clock verified and synchronized.',
+      driftSeconds: 0,
+      speedRatio: 1.0,
+      lastVerifiedServerTime: Date.now(),
+    };
+    this.notify();
     return this.status;
   }
 

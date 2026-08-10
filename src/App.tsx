@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Volume2,
@@ -15,7 +15,8 @@ import {
   Clock,
   RefreshCw,
   ShieldCheck,
-  Sparkles
+  Sparkles,
+  WifiOff
 } from 'lucide-react';
 
 import { sound } from './utils/sound';
@@ -24,16 +25,22 @@ import { processTitleUnlocks } from './utils/titles';
 import { timeGuard, TimeSecurityStatus } from './utils/timeGuard';
 import { proxyGuard, NetworkSecurityStatus } from './utils/proxyGuard';
 import {
-  initAuth,
-  syncUserStatsToFirestore,
-  fetchUserStatsFromFirestore,
+  auth,
+  logoutUserInFirebase,
   addTransactionToFirestore,
   fetchTransactionsFromFirestore,
   addNotificationToFirestore,
-  subscribeUserStats,
   subscribeAnnouncementsFromFirestore,
   subscribeEconomyConfigFromFirestore
 } from './lib/firebase';
+import {
+  loadUserData,
+  flushPendingUserStats,
+  markDirtyAndScheduleSave,
+  saveOnEvent,
+  resetCloudSaveState
+} from './lib/cloudSave';
+import { onAuthStateChanged } from 'firebase/auth';
 
 // Import subcomponents
 import Home from './components/Home';
@@ -45,6 +52,7 @@ import AuthScreen, { AuthUser } from './components/AuthScreen';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { NotificationsPanel, AppNotification } from './components/NotificationsPanel';
 import AdminDashboard from './components/AdminDashboard';
+import { AnimatedOdometer } from './components/AnimatedOdometer';
 
 interface NotificationToast {
   id: string;
@@ -54,28 +62,25 @@ interface NotificationToast {
 }
 
 const INITIAL_STATS: UserStats = {
-  createdAt: Date.now() - 10 * 24 * 60 * 60 * 1000, // Account created 10 days ago (age >= 7 days)
-  coins: 1240, 
-  totalEarned: 1240,
-  xp: 10, 
+  createdAt: Date.now(),
+  coins: 100, // 100 SP automatically after signup
+  totalEarned: 100,
+  xp: 0, 
   level: 1,
   streak: 0, 
   lastCheckIn: null,
-  slapsToday: 70, // 30 starting slaps available (100 - 70 = 30)
+  slapsToday: 70, // 30 slaps starting available (100 max - 70 = 30)
   maxSlapsPerDay: 100, // Capped at 100 slaps max
-  bestCombo: 18,
-  daysActive: 12,
-  referrals: 2,
+  bestCombo: 0,
+  daysActive: 0,
+  referrals: 0,
   adsWatchedToday: 0,
-  totalAdsWatchedLifetime: 3,
+  totalAdsWatchedLifetime: 0,
+  hasClaimedStarterPack: true,
   lastActiveDate: new Date().toDateString(),
   selectedHand: 'wooden',
   unlockedHands: ['wooden'],
-  referralsList: [
-    { id: 'ref-1', name: 'Alex M.', adsWatched: 20, rewardClaimed: false, joinedAt: 'Yesterday' },
-    { id: 'ref-2', name: 'Sarah K.', adsWatched: 14, rewardClaimed: false, joinedAt: '3 days ago' },
-    { id: 'ref-3', name: 'David L.', adsWatched: 8, rewardClaimed: false, joinedAt: '5 days ago' }
-  ],
+  referralsList: [],
   referralsForCurrentWithdrawal: 0,
   slapsPlayedToday: 0,
   charactersDefeatedToday: 0,
@@ -87,10 +92,10 @@ const INITIAL_STATS: UserStats = {
 
 const INITIAL_TRANSACTIONS: Transaction[] = [
   {
-    id: 'tx-onboarding-welcome',
+    id: 'tx-starter-welcome',
     type: 'earn',
-    amount: 1240,
-    title: 'Starter Registration Balance',
+    amount: 100,
+    title: 'Starter Signup Balance',
     category: 'Daily Check-in',
     timestamp: new Date().toISOString(),
     status: 'completed'
@@ -98,69 +103,119 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
 ];
 
 export default function App() {
-  // Central state loaded from LocalStorage
-  const [stats, setStats] = useState<UserStats>(() => {
-    const cached = localStorage.getItem('slapearn_stats');
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      parsed.maxSlapsPerDay = 100;
-      if (!parsed.hasInitializedStarting30Slaps) {
-        parsed.slapsToday = 70; // 30 slaps available starting energy (100 - 70 = 30)
-        parsed.hasInitializedStarting30Slaps = true;
-      }
-      if (parsed.slapsToday < 0) {
-        parsed.slapsToday = 0; // Ensures slaps available never exceeds 100
-      }
-      if (!parsed.selectedHand) {
-        parsed.selectedHand = 'wooden';
-      }
-      if (!parsed.unlockedHands) {
-        parsed.unlockedHands = ['wooden'];
-      }
-      if (!parsed.referralsList) {
-        parsed.referralsList = INITIAL_STATS.referralsList;
-      }
-      if (parsed.referralsForCurrentWithdrawal === undefined) {
-        parsed.referralsForCurrentWithdrawal = 0;
-      }
-      if (!parsed.createdAt) {
-        parsed.createdAt = Date.now() - 10 * 24 * 60 * 60 * 1000;
-      }
-      if (parsed.slapsPlayedToday === undefined) parsed.slapsPlayedToday = 0;
-      if (parsed.charactersDefeatedToday === undefined) parsed.charactersDefeatedToday = 0;
-      if (parsed.spEarnedToday === undefined) parsed.spEarnedToday = 0;
-      if (parsed.surveysCompletedToday === undefined) parsed.surveysCompletedToday = 0;
-      if (parsed.offersCompletedToday === undefined) parsed.offersCompletedToday = 0;
-      if (parsed.totalAdsWatchedLifetime === undefined) parsed.totalAdsWatchedLifetime = 0;
-      if (parsed.adsWatchedToday === undefined) parsed.adsWatchedToday = 0;
-      if (!parsed.claimedDailyChallenges) parsed.claimedDailyChallenges = [];
-      return parsed;
-    }
-    return INITIAL_STATS;
-  });
+  // Server-based central state (No local storage loading)
+  const [stats, setStats] = useState<UserStats>(INITIAL_STATS);
+  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
 
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const cached = localStorage.getItem('slapearn_transactions');
-    return cached ? JSON.parse(cached) : INITIAL_TRANSACTIONS;
-  });
+  // Internet connectivity state (Constant internet connection required)
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
 
-  // Auth state
-  const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
-    try {
-      const cachedAuth = localStorage.getItem('slapearn_auth_user');
-      return cachedAuth ? JSON.parse(cachedAuth) : null;
-    } catch {
-      return null;
-    }
-  });
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    const cachedAuth = localStorage.getItem('slapearn_auth_user');
-    return !!cachedAuth || !!stats.username;
-  });
+  // Always keep statsRef up-to-date for timers & unload events
+  const statsRef = useRef<UserStats>(stats);
+  useEffect(() => {
+    statsRef.current = stats;
+  }, [stats]);
 
-  // Switch navigation tabs to match the screenshot bottom navigator
-  const [activeTab, setActiveTab] = useState<'home' | 'earn' | 'slap' | 'wallet' | 'profile'>('slap'); // Default to Slap game as pictured!
+  // Auth state driven by Firebase Auth & Cloud Save
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+
+  // Listen to real-time Firebase Auth status
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const activeUid = localStorage.getItem('slapearn_active_uid') || (user ? user.uid : null);
+
+      if (activeUid) {
+        setFirebaseUid(activeUid);
+        setIsAuthenticated(true);
+
+        // Load user stats ONCE from Cloud Save System (Firestore + Local Cache)
+        const loadedStats = await loadUserData(activeUid, INITIAL_STATS);
+        setStats(loadedStats);
+
+        setAuthUser({
+          uid: activeUid,
+          username: loadedStats.username || user?.displayName || 'Slapper',
+          email: loadedStats.email || user?.email || '',
+          myReferralCode: loadedStats.myReferralCode || `SLAP-${(loadedStats.username || 'SLAPPER').toUpperCase()}`,
+          country: loadedStats.country || 'South Africa 🇿🇦'
+        });
+
+        // Fetch transactions from server & cache
+        const remoteTxs = await fetchTransactionsFromFirestore(activeUid);
+        const cachedTxsRaw = localStorage.getItem(`slapearn_txs_${activeUid}`);
+        const cachedTxs = cachedTxsRaw ? JSON.parse(cachedTxsRaw) : [];
+
+        if (remoteTxs && remoteTxs.length > 0) {
+          setTransactions(remoteTxs);
+        } else if (cachedTxs.length > 0) {
+          setTransactions(cachedTxs);
+        }
+      } else {
+        setFirebaseUid(null);
+        setIsAuthenticated(false);
+        setAuthUser(null);
+        setStats({ ...INITIAL_STATS });
+        setTransactions([]);
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Background auto-save interval (every 30 seconds), tab hide / unload, and online reconnection listener
+  useEffect(() => {
+    if (!firebaseUid) return;
+
+    // 1. Periodic 30-second background save if dirty
+    const autoSaveInterval = setInterval(() => {
+      flushPendingUserStats(firebaseUid, statsRef.current);
+    }, 30000);
+
+    // 2. Unload / visibility change save
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPendingUserStats(firebaseUid, statsRef.current, true);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      flushPendingUserStats(firebaseUid, statsRef.current, true);
+    };
+
+    // 3. Online reconnection handler to flush any pending offline save
+    const handleOnlineSync = () => {
+      flushPendingUserStats(firebaseUid, statsRef.current, true);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('online', handleOnlineSync);
+
+    return () => {
+      clearInterval(autoSaveInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('online', handleOnlineSync);
+    };
+  }, [firebaseUid]);
+
+  // Switch navigation tabs
+  const [activeTab, setActiveTab] = useState<'home' | 'earn' | 'slap' | 'wallet' | 'profile'>('slap');
   const [isMuted, setIsMuted] = useState<boolean>(() => sound.getMuteStatus());
   const [notifications, setNotifications] = useState<NotificationToast[]>([]);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState<boolean>(false);
@@ -174,18 +229,8 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
-  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('slapearn_notifications_history');
-      if (saved) {
-        const items = JSON.parse(saved);
-        return Array.isArray(items) ? items.filter((item: { read?: boolean }) => !item.read).length : 0;
-      }
-    } catch {
-      // ignore
-    }
-    return 3; // Default unread items
-  });
+
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(3);
 
   // Proxy & VPN Security State
   const [proxyStatus, setProxyStatus] = useState<NetworkSecurityStatus>(() => proxyGuard.getStatus());
@@ -221,86 +266,56 @@ export default function App() {
     }
   };
 
-  // Handle Login / Sign Up
-  const handleLoginSuccess = (user: AuthUser, isNewUser: boolean) => {
-    localStorage.setItem('slapearn_auth_user', JSON.stringify(user));
+  // Handle Login / Sign Up success callback
+  const handleLoginSuccess = async (user: AuthUser, isNewUser: boolean) => {
+    localStorage.setItem('slapearn_active_uid', user.uid);
     setAuthUser(user);
     setIsAuthenticated(true);
+    setFirebaseUid(user.uid);
+
+    // Load user stats ONCE from Cloud Save System
+    const loadedStats = await loadUserData(user.uid, INITIAL_STATS);
+    setStats(loadedStats);
+
+    const remoteTxs = await fetchTransactionsFromFirestore(user.uid);
+    const cachedTxsRaw = localStorage.getItem(`slapearn_txs_${user.uid}`);
+    const cachedTxs = cachedTxsRaw ? JSON.parse(cachedTxsRaw) : [];
+
+    if (remoteTxs && remoteTxs.length > 0) {
+      setTransactions(remoteTxs);
+      localStorage.setItem(`slapearn_txs_${user.uid}`, JSON.stringify(remoteTxs));
+    } else if (cachedTxs.length > 0) {
+      setTransactions(cachedTxs);
+    }
 
     if (isNewUser) {
-      setStats((prev) => ({
-        ...prev,
-        username: user.username,
-        email: user.email,
-        myReferralCode: user.myReferralCode,
-        referredByCode: user.referredByCode,
-        totalAdsWatchedLifetime: 0,
-        referredByRewardClaimed: false,
-        createdAt: Date.now()
-      }));
-
-      if (user.referredByCode) {
-        addNotification(
-          '🎉 Welcome & Referral Registered!',
-          `Signed up with referral code ${user.referredByCode}! Watch 20 ads to earn +100 SP bonus.`,
-          'success'
-        );
-      } else {
-        addNotification('🎉 Welcome to SlapEarn!', `Account created for ${user.username}!`, 'success');
-      }
+      addNotification('🎉 Welcome to SlapEarn!', `Account created for ${user.username}! +100 SP Starter Balance awarded!`, 'success');
     } else {
-      setStats((prev) => ({
-        ...prev,
-        username: user.username,
-        email: user.email,
-        myReferralCode: user.myReferralCode || (`SLAP-${user.username.toUpperCase()}`)
-      }));
       addNotification('Welcome Back!', `Logged in as ${user.username}`, 'success');
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     sound.playSuccess();
-    localStorage.removeItem('slapearn_auth_user');
+    // Flush & save data to Firestore and cache before signing out
+    if (firebaseUid && statsRef.current) {
+      try {
+        await saveOnEvent(firebaseUid, statsRef.current, 'sign_out');
+        localStorage.setItem(`slapearn_txs_${firebaseUid}`, JSON.stringify(transactions));
+      } catch (err) {
+        console.warn('Sync on logout failed:', err);
+      }
+    }
+    resetCloudSaveState();
+    await logoutUserInFirebase();
+    setFirebaseUid(null);
     setAuthUser(null);
     setIsAuthenticated(false);
-    addNotification('Logged Out', 'You have logged out. Sign up or log in to continue!', 'info');
+    setStats({ ...INITIAL_STATS });
+    setTransactions([]);
+    setNotifications([]);
+    addNotification('Logged Out', 'Your points and data have been safely saved. Sign back in anytime!', 'info');
   };
-
-  // Firebase Auth & Firestore Sync state
-  const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
-
-  // Initialize Firebase Auth & Load initial remote Firestore data
-  useEffect(() => {
-    initAuth().then(async (user) => {
-      setFirebaseUid(user.uid);
-
-      // Load stats from Cloud Firestore
-      const remoteStats = await fetchUserStatsFromFirestore(user.uid);
-      if (remoteStats && Object.keys(remoteStats).length > 0) {
-        setStats((prev) => ({ ...prev, ...remoteStats }));
-      } else {
-        // Upload initial stats to Firestore
-        syncUserStatsToFirestore(user.uid, stats);
-      }
-
-      // Load transactions from Cloud Firestore
-      const remoteTxs = await fetchTransactionsFromFirestore(user.uid);
-      if (remoteTxs && remoteTxs.length > 0) {
-        setTransactions(remoteTxs);
-      }
-    }).catch((err) => {
-      console.warn("Firebase authentication note:", err);
-    });
-  }, []);
-
-  // Cache state triggers & Cloud Firestore synchronization
-  useEffect(() => {
-    localStorage.setItem('slapearn_stats', JSON.stringify(stats));
-    if (firebaseUid) {
-      syncUserStatsToFirestore(firebaseUid, stats);
-    }
-  }, [stats, firebaseUid]);
 
   // Real-time listener for announcements broadcasted from Admin Dashboard
   useEffect(() => {
@@ -471,6 +486,8 @@ export default function App() {
       return;
     }
 
+    let nextStatsState: UserStats | null = null;
+
     setStats((prev) => {
       let nextXp = prev.xp + xpReward;
       let nextLevel = prev.level;
@@ -519,8 +536,18 @@ export default function App() {
         }, 400);
       }
 
+      nextStatsState = updatedStats;
       return updatedStats;
     });
+
+    if (firebaseUid && nextStatsState) {
+      const isHighValueEvent = ['Ad', 'Survey', 'Offerwall', 'Level Up', 'Daily Check-in'].includes(category);
+      if (isHighValueEvent) {
+        saveOnEvent(firebaseUid, nextStatsState, category);
+      } else {
+        markDirtyAndScheduleSave(firebaseUid, nextStatsState);
+      }
+    }
 
     // Record Transaction
     const newTx: Transaction = {
@@ -557,16 +584,23 @@ export default function App() {
 
     let success = false;
     let newTx: Transaction | null = null;
+    let nextStatsState: UserStats | null = null;
+
     setStats((prev) => {
       if (prev.coins < amount) return prev;
       success = true;
-      return {
+      nextStatsState = {
         ...prev,
         coins: prev.coins - amount
       };
+      return nextStatsState;
     });
 
     if (success) {
+      if (firebaseUid && nextStatsState) {
+        saveOnEvent(firebaseUid, nextStatsState, 'withdrawal_requested');
+      }
+
       newTx = {
         id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
         type: 'redeem',
@@ -585,8 +619,18 @@ export default function App() {
     return success;
   };
 
-  const updateStatsDirectly = (newStats: Partial<UserStats>) => {
-    setStats((prev) => ({ ...prev, ...newStats }));
+  const updateStatsDirectly = (newStats: Partial<UserStats>, eventName?: string) => {
+    setStats((prev) => {
+      const updated = { ...prev, ...newStats };
+      if (firebaseUid) {
+        if (eventName) {
+          saveOnEvent(firebaseUid, updated, eventName);
+        } else {
+          markDirtyAndScheduleSave(firebaseUid, updated);
+        }
+      }
+      return updated;
+    });
   };
 
   // Compute stats info
@@ -594,10 +638,10 @@ export default function App() {
   const xpProgressPercent = Math.min(100, (stats.xp / xpThreshold) * 100);
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#111317] text-slate-800 flex items-center justify-center font-sans p-0 sm:p-4 selection:bg-[#FFEAF0] selection:text-[#E33D6F]" id="slapearn-main-app">
+    <div className="h-[100dvh] w-screen overflow-hidden bg-[#FDFBF2] sm:bg-[#111317] text-slate-800 flex items-center justify-center font-sans p-0 sm:p-4 selection:bg-[#FFEAF0] selection:text-[#E33D6F]" id="slapearn-main-app">
       
       {/* Smartphone Viewport Card Mockup */}
-      <div className="w-full h-full sm:h-[860px] sm:max-w-[420px] sm:rounded-[48px] sm:border-8 sm:border-slate-900 bg-[#FDFBF2] flex flex-col shadow-2xl overflow-hidden relative" id="mobile-viewport">
+      <div className="w-full h-[100dvh] sm:h-[860px] sm:max-w-[420px] sm:rounded-[48px] sm:border-8 sm:border-slate-900 bg-[#FDFBF2] flex flex-col shadow-2xl overflow-hidden relative" id="mobile-viewport">
         
         {/* Notch details for Desktop Mockup view */}
         <div className="hidden sm:flex absolute top-0 left-0 right-0 h-6 bg-slate-900 z-50 items-center justify-center gap-1.5 rounded-t-xl">
@@ -605,31 +649,64 @@ export default function App() {
           <div className="w-2.5 h-2.5 bg-slate-800 rounded-full absolute right-8" />
         </div>
 
+        {!isOnline && (
+          <div 
+            className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[9999] flex flex-col items-center justify-center p-6 text-white text-center select-none"
+            id="internet-required-modal-overlay"
+          >
+            <div className="bg-[#0F172A] border-4 border-rose-600 rounded-[32px] w-full max-w-[380px] p-6 shadow-[0_0_50px_rgba(225,29,72,0.5)] flex flex-col items-center text-center relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-rose-500 via-amber-500 to-rose-500 animate-pulse" />
+              
+              <div className="w-16 h-16 bg-rose-500/20 border-3 border-rose-500 rounded-3xl flex items-center justify-center text-rose-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] mb-4">
+                <WifiOff className="w-9 h-9 stroke-[2.5px] animate-pulse" />
+              </div>
+
+              <span className="bg-rose-500/20 text-rose-300 font-extrabold text-[10px] px-3 py-1 rounded-full border border-rose-500/40 uppercase tracking-widest mb-2">
+                NO CONNECTION
+              </span>
+
+              <h2 className="text-xl font-black text-white uppercase tracking-tight mb-2">
+                Internet Required
+              </h2>
+
+              <p className="text-slate-300 text-xs font-semibold leading-relaxed mb-6">
+                SlapEarn requires an active internet connection to authenticate account data, prevent double-reward tampering, and process live server sync. Please reconnect your internet to continue.
+              </p>
+
+              <div className="w-full py-3 rounded-2xl bg-slate-900 border-2 border-slate-800 text-slate-400 font-bold text-xs flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-rose-500 stroke-[2.5px]" />
+                <span>Waiting for internet connection...</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!isAuthenticated ? (
           <AuthScreen
             onLoginSuccess={handleLoginSuccess}
-            onSkipDemo={() => setIsAuthenticated(true)}
           />
         ) : (
           <>
             {/* Dynamic Mobile Header */}
-            <header className="bg-[#FDFBF2] px-4 py-3 flex justify-between items-center select-none" id="slapearn-header">
+            <header className="bg-[#FDFBF2] px-4 py-2.5 flex justify-between items-center select-none shrink-0" id="slapearn-header">
               {/* Logo Brand Title */}
-              <div className="flex flex-col">
-                <div 
-                  className="flex items-center font-sans font-black text-[28px] italic select-none tracking-[-0.06em] origin-left rotate-[-4deg]"
-                  style={{
-                    textShadow: "2.5px 2.5px 0px #0F172A, -1.5px -1.5px 0px #0F172A, 1.5px -1.5px 0px #0F172A, -1.5px 1.5px 0px #0F172A"
-                  }}
-                >
-                  <span className="text-white">Slap</span>
-                  <span className="text-[#FF2B6D] -ml-0.5">Earn</span>
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col">
+                  <div 
+                    className="flex items-center font-sans font-black text-[25px] italic select-none tracking-[-0.06em] origin-left rotate-[-3deg]"
+                    style={{
+                      textShadow: "2.5px 2.5px 0px #0F172A, -1.5px -1.5px 0px #0F172A, 1.5px -1.5px 0px #0F172A, -1.5px 1.5px 0px #0F172A"
+                    }}
+                  >
+                    <span className="text-white">Slap</span>
+                    <span className="text-[#FF2B6D] -ml-0.5">Earn</span>
+                  </div>
+                  {stats.username && (
+                    <span className="text-[10px] font-extrabold text-slate-500 -mt-1 truncate max-w-[90px]">
+                      @{stats.username}
+                    </span>
+                  )}
                 </div>
-                {stats.username && (
-                  <span className="text-[10px] font-extrabold text-slate-500 -mt-1 truncate max-w-[90px]">
-                    @{stats.username}
-                  </span>
-                )}
               </div>
 
               {/* Header Stats Pills as in user's screenshot */}
@@ -669,7 +746,7 @@ export default function App() {
                 {/* Coins pill */}
                 <div className="flex items-center gap-1 bg-[#FFD043] border-2 border-slate-900 px-2.5 py-1 rounded-full text-xs font-black text-slate-950 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
                   <Coins className="w-3.5 h-3.5 text-slate-950 stroke-[2.5px]" />
-                  <span className="font-sans font-black tracking-tight">{stats.coins.toLocaleString()}</span>
+                  <AnimatedOdometer value={stats.coins} className="font-sans font-black tracking-tight" />
                 </div>
 
                 {/* Notifications Bell Icon Button */}
@@ -705,7 +782,7 @@ export default function App() {
             )}
 
             {/* Dynamic View Scrollport */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 scrollbar-none" id="slapearn-active-view-container">
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 pb-4 scrollbar-none" id="slapearn-active-view-container">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeTab}
@@ -779,10 +856,11 @@ export default function App() {
               </AnimatePresence>
             </div>
 
-            {/* Persistent Bottom Tab Bar Navigation matching the screenshot perfectly */}
-            <nav className="absolute bottom-0 left-0 right-0 bg-[#FDFBF2] px-2 py-1 pb-3 sm:pb-2.5 flex justify-around items-center z-40 select-none" id="bottom-navigation-bar">
+            {/* Fixed Non-Scrolling Bottom Navigation Bar */}
+            <nav className="shrink-0 bg-[#FDFBF2] border-t-2 border-slate-900/10 px-2 py-1.5 pb-3 sm:pb-2.5 flex justify-around items-center z-40 select-none shadow-[0_-4px_10px_rgba(15,23,42,0.05)]" id="bottom-navigation-bar">
               
               <button
+                id="nav-home-btn"
                 onClick={() => { sound.playSlap(); setActiveTab('home'); }}
                 className={`flex flex-col items-center justify-center flex-1 transition-colors ${
                   activeTab === 'home' ? 'text-[#FF3B77]' : 'text-slate-400 hover:text-slate-600'
@@ -793,6 +871,7 @@ export default function App() {
               </button>
 
               <button
+                id="nav-earn-btn"
                 onClick={() => { sound.playSlap(); setActiveTab('earn'); }}
                 className={`flex flex-col items-center justify-center flex-1 transition-colors ${
                   activeTab === 'earn' ? 'text-[#FF3B77]' : 'text-slate-400 hover:text-slate-600'
@@ -805,6 +884,7 @@ export default function App() {
               {/* Highlighted Slapping blob action button */}
               <div className="relative -top-1 flex flex-col items-center justify-center px-1">
                 <button
+                  id="nav-slap-btn"
                   onClick={() => { sound.playSlap(); setActiveTab('slap'); }}
                   className={`w-14 h-14 rounded-full border-4 border-slate-900 flex items-center justify-center shadow-[2px_3px_0px_0px_rgba(15,23,42,1)] transition-transform hover:scale-105 active:scale-95 bg-[#FFD043]`}
                 >
@@ -816,6 +896,7 @@ export default function App() {
               </div>
 
               <button
+                id="nav-wallet-btn"
                 onClick={() => { sound.playSlap(); setActiveTab('wallet'); }}
                 className={`flex flex-col items-center justify-center flex-1 transition-colors ${
                   activeTab === 'wallet' ? 'text-[#FF3B77]' : 'text-slate-400 hover:text-slate-600'
@@ -826,6 +907,7 @@ export default function App() {
               </button>
 
               <button
+                id="nav-profile-btn"
                 onClick={() => { sound.playSlap(); setActiveTab('profile'); }}
                 className={`flex flex-col items-center justify-center flex-1 transition-colors ${
                   activeTab === 'profile' ? 'text-[#FF3B77]' : 'text-slate-400 hover:text-slate-600'

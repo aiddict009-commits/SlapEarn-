@@ -373,7 +373,7 @@ export default function Offerwalls({ updateCoinsAndXp, addNotification }: Offerw
                       id={`simulate-resume-btn-${offer.id}`}
                       className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-display font-bold text-xs rounded-xl transition-all"
                     >
-                      Resume Test
+                      Resume Offer
                     </button>
                   )}
 
