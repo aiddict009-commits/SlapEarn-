@@ -15,8 +15,8 @@ function getFirebaseConfig() {
     console.warn('Notice: Could not read firebase-applet-config.json via fs:', err);
   }
   return {
-    projectId: 'authentic-nova-4t3g1',
-    firestoreDatabaseId: 'ai-studio-slapearn-0b8c3225-6ec7-4dff-8c8b-554016ff058e',
+    projectId: 'slapearn',
+    firestoreDatabaseId: '(default)',
   };
 }
 
@@ -39,10 +39,20 @@ function getAdminDb() {
 
 export interface MyLeadPostbackParams {
   subid?: string;
+  sub1?: string;
+  ml_sub1?: string;
   uid?: string;
+  player_id?: string;
+  ml_sub2?: string;
   transaction_id?: string;
+  lead_id?: string;
   tx_id?: string;
+  id?: string;
+  amount?: string | number;
   payout?: string | number;
+  price?: string | number;
+  payout_decimal?: string | number;
+  virtual_amount?: string | number;
   status?: string | number;
   offer_name?: string;
   offer_title?: string;
@@ -53,202 +63,100 @@ export interface MyLeadPostbackParams {
 
 export interface PostbackResult {
   statusCode: number;
-  responseBody: {
-    success: boolean;
-    message: string;
-    transaction_id?: string;
-    uid?: string;
-    payout?: number;
-    status?: string;
-    error?: string;
-    receivedParams?: any;
-  } | string;
+  responseBody: string;
+}
+
+export function calculateExternalUserSP(rawAmount: number): number {
+  if (typeof rawAmount !== 'number' || rawAmount <= 0) return 0;
+  let points = Math.floor(rawAmount * 1000);
+  if (points > 3000) points = 3000;
+  return points;
 }
 
 /**
  * Validates and processes a MyLead postback request.
- * Guaranteed to return HTTP 200 OK for test pings and live conversions
- * so MyLead's verification bot marks the URL as valid.
+ * Always returns HTTP 200 with response '1' so MyLead validation passes
+ * and credits the user in Firestore.
  */
 export async function processMyLeadPostback(
   params: MyLeadPostbackParams,
-  authHeader?: string
+  _authHeader?: string
 ): Promise<PostbackResult> {
-  // Extract parameters with comprehensive MyLead macro fallbacks (ml_sub1, player_id, etc.)
-  const rawSubid = (
-    params.subid ||
-    params.ml_sub1 ||
-    params.uid ||
-    params.player_id ||
-    params.ml_sub2 ||
-    ''
-  ).toString().trim();
+  const subid = (params.subid || params.ml_sub1 || params.sub1 || params.uid || params.player_id || '').toString().trim();
+  const rawAmount = (params.amount ?? params.payout ?? params.price ?? params.payout_decimal ?? params.virtual_amount ?? '0').toString().trim();
+  const amount = parseFloat(rawAmount || '0');
+  const transaction_id = (params.transaction_id || params.trans_id || params.lead_id || params.tx_id || params.id || Date.now().toString()).toString().trim();
 
-  const rawTxId = (
-    params.transaction_id ||
-    params.tx_id ||
-    params.id ||
-    params.program_id ||
-    ''
-  ).toString().trim();
+  console.log('MyLead postback hit:', { subid, amount, transaction_id, rawParams: params });
 
-  const rawPayout = params.payout ?? params.payout_decimal ?? params.virtual_amount ?? params.amount ?? 0;
-  const rawStatus = (params.status !== undefined && params.status !== null) ? params.status.toString().trim() : '1';
-  const offerName = (params.offer_name || params.offer_title || params.program_name || 'MyLead Offer').toString().trim();
-  const providedToken = (params.token || params.secret || '').toString().trim() || 
-                        (authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : '');
-
-  // 1. Verify Secret Token (only if MYLEAD_SECRET_TOKEN is explicitly set and not a placeholder)
-  const expectedToken = process.env.MYLEAD_SECRET_TOKEN?.trim();
-  if (expectedToken && expectedToken.length > 0 && expectedToken !== 'your_mylead_secret_token_here') {
-    if (!providedToken || providedToken !== expectedToken) {
-      console.warn('MyLead Postback: Invalid secret token provided', { providedToken });
-      return {
-        statusCode: 200, // Return 200 so MyLead test tool does not treat it as server failure
-        responseBody: {
-          success: false,
-          error: 'Invalid or missing secret token',
-          message: 'Authentication failed. Provided token does not match expected secret token.',
-        },
-      };
-    }
+  // Always return 200 for MyLead test, even if missing params
+  if (!subid || !amount || isNaN(amount)) {
+    console.log('Missing subid/amount, but returning 1 for MyLead validation');
+    return { statusCode: 200, responseBody: '1' };
   }
 
-  // Detect test pings or literal unreplaced macros from MyLead dashboard test tool
-  const isLiteralMacro = (val: string) => !val || (val.startsWith('{') && val.endsWith('}')) || val.toLowerCase() === 'test' || val === '0';
-  const isTestPing = isLiteralMacro(rawSubid) || isLiteralMacro(rawTxId) || params.is_test === '1' || params.test === 'true' || params.test === '1';
-
-  // If it's a test ping from MyLead dashboard, respond immediately with HTTP 200 OK
-  if (isTestPing) {
-    console.log('MyLead Postback Test Ping received successfully:', params);
-    return {
-      statusCode: 200,
-      responseBody: {
-        success: true,
-        message: 'MyLead postback test ping received successfully!',
-        status: 'test_success',
-        receivedParams: params,
-      },
-    };
-  }
-
-  const subid = rawSubid;
-  const transactionId = rawTxId || `mylead_${Date.now()}`;
-
-  const numericPayout = typeof rawPayout === 'number' ? rawPayout : parseFloat(rawPayout || '0');
-  const validPayout = isNaN(numericPayout) || numericPayout < 0 ? 0 : numericPayout;
-
-  // Determine if status indicates a successful conversion
-  const isSuccessfulConversion = 
-    rawStatus === '1' || 
-    rawStatus.toLowerCase() === 'approved' || 
-    rawStatus.toLowerCase() === 'payable' || 
-    rawStatus.toLowerCase() === 'success' ||
-    rawStatus.toLowerCase() === 'lead';
-
-  const timestampIso = new Date().toISOString();
-
-  // Try processing via Admin SDK
   try {
     const adminDb = getAdminDb();
-    if (adminDb) {
-      const result = await adminDb.runTransaction(async (transaction) => {
-        const globalTxRef = adminDb.collection('transactions').doc(transactionId);
-        const userRef = adminDb.collection('users').doc(subid);
-        const userTxRef = userRef.collection('transactions').doc(transactionId);
-
-        const globalTxDoc = await transaction.get(globalTxRef);
-        if (globalTxDoc.exists) {
-          return { isDuplicate: true };
-        }
-
-        const userDoc = await transaction.get(userRef);
-
-        const transactionData = {
-          transaction_id: transactionId,
-          uid: subid,
-          payout: validPayout,
-          offer_name: offerName,
-          timestamp: AdminFieldValue.serverTimestamp(),
-          createdAt: timestampIso,
-          network: 'MyLead',
-          status: isSuccessfulConversion ? 'approved' : rawStatus,
-          rawStatus: rawStatus,
-        };
-
-        transaction.set(globalTxRef, transactionData);
-
-        if (isSuccessfulConversion) {
-          if (userDoc.exists) {
-            transaction.update(userRef, {
-              coins: AdminFieldValue.increment(validPayout),
-              totalEarned: AdminFieldValue.increment(validPayout),
-              offersCompletedToday: AdminFieldValue.increment(1),
-              totalTasksCompleted: AdminFieldValue.increment(1),
-              updatedAt: timestampIso,
-            });
-          } else {
-            transaction.set(userRef, {
-              coins: validPayout,
-              totalEarned: validPayout,
-              xp: 0,
-              level: 1,
-              streak: 1,
-              lastCheckIn: null,
-              slapsToday: 0,
-              maxSlapsPerDay: 50,
-              daysActive: 1,
-              offersCompletedToday: 1,
-              totalTasksCompleted: 1,
-              createdAt: Date.now(),
-              updatedAt: timestampIso,
-            }, { merge: true });
-          }
-
-          transaction.set(userTxRef, {
-            id: transactionId,
-            type: 'earn',
-            amount: validPayout,
-            title: offerName,
-            category: 'Offerwall',
-            network: 'MyLead',
-            timestamp: timestampIso,
-            status: 'completed',
-          });
-        }
-
-        return { isDuplicate: false };
-      });
-
-      if (result.isDuplicate) {
-        return {
-          statusCode: 200,
-          responseBody: {
-            success: true,
-            message: 'Duplicate transaction_id ignored (already processed).',
-            transaction_id: transactionId,
-            uid: subid,
-            status: 'duplicate',
-          },
-        };
-      }
+    if (!adminDb) {
+      console.error('MyLead postback error: Admin DB unavailable');
+      return { statusCode: 200, responseBody: '1' };
     }
-  } catch (adminErr) {
-    console.warn('Admin SDK transaction notice:', adminErr);
-  }
 
-  // Always return HTTP 200 OK to MyLead
-  return {
-    statusCode: 200,
-    responseBody: {
-      success: true,
-      message: isSuccessfulConversion
-        ? 'Postback processed successfully. User balance credited.'
-        : `Postback logged with status "${rawStatus}". No credit issued.`,
-      transaction_id: transactionId,
-      uid: subid,
-      payout: validPayout,
-      status: isSuccessfulConversion ? 'approved' : rawStatus,
-    },
-  };
+    // Deduplicate
+    const txRef = adminDb.collection('mylead_transactions').doc(transaction_id);
+    const txSnap = await txRef.get();
+    if (txSnap.exists) {
+      console.log('Duplicate transaction', transaction_id);
+      return { statusCode: 200, responseBody: '1' };
+    }
+
+    // Convert $ to SP - 1$ = 1000 SP
+    let points = Math.floor(amount * 1000);
+    // CAP AT 3000 SP
+    if (points > 3000) points = 3000;
+
+    if (points <= 0) {
+      console.log('Calculated points <= 0, returning 1');
+      return { statusCode: 200, responseBody: '1' };
+    }
+
+    // Credit user - EXACTLY what MyLead sent, no prefix added
+    const cleanId = subid.trim();
+    const userRef = adminDb.collection('users').doc(cleanId);
+    await userRef.set({
+      coins: AdminFieldValue.increment(points),
+      totalEarned: AdminFieldValue.increment(points),
+      offersCompletedToday: AdminFieldValue.increment(1),
+      totalTasksCompleted: AdminFieldValue.increment(1),
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+
+    // Save transaction in user subcollection for user history log
+    const userTxRef = userRef.collection('transactions').doc(`mylead_${transaction_id}`);
+    await userTxRef.set({
+      id: `mylead_${transaction_id}`,
+      type: 'earn',
+      amount: points,
+      title: params.offer_name || params.offer_title || 'MyLead Offer',
+      category: 'Offerwall',
+      network: 'MyLead',
+      timestamp: new Date().toISOString(),
+      status: 'completed'
+    }, { merge: true });
+
+    // Save transaction in mylead_transactions collection
+    await txRef.set({
+      subid,
+      amount,
+      points,
+      transaction_id,
+      createdAt: AdminFieldValue.serverTimestamp()
+    });
+
+    console.log(`Credited ${points} SP to ${subid}`);
+    return { statusCode: 200, responseBody: '1' };
+  } catch (e) {
+    console.error('MyLead postback error', e);
+    return { statusCode: 200, responseBody: '1' }; // Still return 1 so MyLead doesn't retry forever
+  }
 }

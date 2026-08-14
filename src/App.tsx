@@ -31,7 +31,8 @@ import {
   fetchTransactionsFromFirestore,
   addNotificationToFirestore,
   subscribeAnnouncementsFromFirestore,
-  subscribeEconomyConfigFromFirestore
+  subscribeEconomyConfigFromFirestore,
+  checkGoogleRedirectResult
 } from './lib/firebase';
 import {
   loadUserData,
@@ -53,6 +54,8 @@ import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { NotificationsPanel, AppNotification } from './components/NotificationsPanel';
 import AdminDashboard from './components/AdminDashboard';
 import { AnimatedOdometer } from './components/AnimatedOdometer';
+import LiveEarningsPopup from './components/LiveEarningsPopup';
+import ProxyAlertOverlay from './components/ProxyAlertOverlay';
 
 interface NotificationToast {
   id: string;
@@ -133,8 +136,10 @@ export default function App() {
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
-  // Listen to real-time Firebase Auth status
+  // Listen to real-time Firebase Auth status & Google redirect result
   useEffect(() => {
+    checkGoogleRedirectResult().catch((e) => console.warn('Google redirect check notice:', e));
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       const activeUid = localStorage.getItem('slapearn_active_uid') || (user ? user.uid : null);
 
@@ -639,6 +644,8 @@ export default function App() {
 
   return (
     <div className="h-[100dvh] w-screen overflow-hidden bg-[#FDFBF2] sm:bg-[#111317] text-slate-800 flex items-center justify-center font-sans p-0 sm:p-4 selection:bg-[#FFEAF0] selection:text-[#E33D6F]" id="slapearn-main-app">
+      {/* Global Fullscreen Proxy / VPN Security Red Alert Overlay */}
+      <ProxyAlertOverlay status={proxyStatus} />
       
       {/* Smartphone Viewport Card Mockup */}
       <div className="w-full h-[100dvh] sm:h-[860px] sm:max-w-[420px] sm:rounded-[48px] sm:border-8 sm:border-slate-900 bg-[#FDFBF2] flex flex-col shadow-2xl overflow-hidden relative" id="mobile-viewport">
@@ -1040,6 +1047,9 @@ export default function App() {
           ))}
         </AnimatePresence>
       </div>
+
+      {/* Real-Time Live Earnings Popup */}
+      <LiveEarningsPopup />
 
       {/* PWA Install Prompt Banner */}
       <PWAInstallPrompt />

@@ -116,109 +116,143 @@ export function AdsterraNative() {
   );
 }
 
+export interface RewardedAdCallbacks {
+  onAdCompleted?: () => void;
+  onUserEarnedReward?: () => void;
+  onAdFailedToShow?: (reason?: string) => void;
+  onAdSkipped?: () => void;
+}
+
+let isAdLoadedGlobal = true;
+
+export function checkRewardedAdLoaded(): boolean {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return false;
+  }
+  return isAdLoadedGlobal;
+}
+
+export function setRewardedAdLoadedStatus(loaded: boolean) {
+  isAdLoadedGlobal = loaded;
+}
+
 export function triggerRewardedAdScript() {
   try {
-    const existing = document.querySelector('script[data-admpid="450610"]');
-    if (existing) {
-      existing.remove();
-    }
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = 'https://js.mbidadm.com/static/scripts.js';
-    script.setAttribute('data-admpid', '450610');
-    document.head.appendChild(script);
+    const existing = document.querySelectorAll('script[data-admpid="450610"]');
+    existing.forEach((el) => el.remove());
   } catch (e) {
-    console.error('Error triggering rewarded ad script:', e);
+    console.error('Error cleaning up rewarded ad script:', e);
   }
 }
 
-export function RewardedAdScript() {
-  const containerRef = useRef<HTMLDivElement>(null);
+interface RewardedAdScriptProps {
+  onAdCompleted?: () => void;
+  onUserEarnedReward?: () => void;
+  onAdFailedToShow?: (reason?: string) => void;
+  onAdSkipped?: () => void;
+}
+
+export function RewardedAdScript({ onAdCompleted, onUserEarnedReward, onAdFailedToShow, onAdSkipped }: RewardedAdScriptProps = {}) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    // Bind global window callbacks for third-party script & iframe postMessage triggers
+    if (typeof window !== 'undefined') {
+      (window as any).onAdCompleted = () => {
+        if (onAdCompleted) onAdCompleted();
+        if (onUserEarnedReward) onUserEarnedReward();
+      };
+      (window as any).onUserEarnedReward = () => {
+        if (onUserEarnedReward) onUserEarnedReward();
+        if (onAdCompleted) onAdCompleted();
+      };
+      (window as any).onAdFailedToShow = (reason?: string) => {
+        if (onAdFailedToShow) onAdFailedToShow(reason);
+      };
+      (window as any).onAdSkipped = () => {
+        if (onAdSkipped) onAdSkipped();
+      };
+    }
 
-    containerRef.current.innerHTML = '';
+    if (!iframeRef.current) return;
 
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = 'https://js.mbidadm.com/static/scripts.js';
-    script.setAttribute('data-admpid', '450610');
+    const iframeDoc = iframeRef.current.contentDocument || iframeRef.current.contentWindow?.document;
+    if (!iframeDoc) return;
 
-    containerRef.current.appendChild(script);
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <style>
+            html, body {
+              margin: 0;
+              padding: 0;
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+              background-color: #020617;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            * {
+              box-sizing: border-box !important;
+            }
+            body > *, iframe, video, div, ins, object, embed {
+              position: absolute !important;
+              top: 0 !important;
+              left: 0 !important;
+              width: 100% !important;
+              height: 100% !important;
+              min-width: 100% !important;
+              min-height: 100% !important;
+              max-width: 100% !important;
+              max-height: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              object-fit: contain !important;
+              border: none !important;
+            }
+          </style>
+        </head>
+        <body>
+          <script async src="https://js.mbidadm.com/static/scripts.js" data-admpid="450610"></script>
+        </body>
+      </html>
+    `;
 
-    // Function to enforce responsive 16:9 sizing and override bottom-right floating styles
-    const enforceStyles = () => {
-      if (!containerRef.current) return;
+    iframeDoc.open();
+    iframeDoc.write(htmlContent);
+    iframeDoc.close();
 
-      // Target all elements inside containerRef
-      const children = containerRef.current.querySelectorAll('*');
-      children.forEach((node) => {
-        const el = node as HTMLElement;
-        if (el.tagName === 'SCRIPT') return;
-
-        el.style.setProperty('position', 'absolute', 'important');
-        el.style.setProperty('top', '0', 'important');
-        el.style.setProperty('left', '0', 'important');
-        el.style.setProperty('right', '0', 'important');
-        el.style.setProperty('bottom', '0', 'important');
-        el.style.setProperty('width', '100%', 'important');
-        el.style.setProperty('height', '100%', 'important');
-        el.style.setProperty('min-width', '100%', 'important');
-        el.style.setProperty('min-height', '100%', 'important');
-        el.style.setProperty('max-width', '100%', 'important');
-        el.style.setProperty('max-height', '100%', 'important');
-        el.style.setProperty('margin', '0', 'important');
-        el.style.setProperty('padding', '0', 'important');
-        el.style.setProperty('float', 'none', 'important');
-        el.style.setProperty('transform', 'none', 'important');
-        el.style.setProperty('object-fit', 'contain', 'important');
-        el.style.setProperty('box-sizing', 'border-box', 'important');
-      });
-
-      // Reparent any orphaned ad containers dynamically injected into body by mbidadm
-      const bodyNodes = document.querySelectorAll('body > div, body > iframe');
-      bodyNodes.forEach((node) => {
-        const el = node as HTMLElement;
-        const outerHtml = el.outerHTML || '';
-        if (
-          outerHtml.includes('mbidadm') ||
-          outerHtml.includes('450610') ||
-          el.getAttribute('data-admpid') === '450610'
-        ) {
-          if (containerRef.current && !containerRef.current.contains(el)) {
-            containerRef.current.appendChild(el);
-          }
-        }
-      });
-    };
-
-    enforceStyles();
-
-    const observer = new MutationObserver(() => {
-      enforceStyles();
-    });
-
-    observer.observe(containerRef.current, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['style', 'class'],
-    });
-
-    const bodyObserver = new MutationObserver(() => {
-      enforceStyles();
-    });
-    bodyObserver.observe(document.body, { childList: true });
-
-    const interval = setInterval(enforceStyles, 300);
+    // Periodically enforce 100% video/player dimensions inside the iframe
+    const interval = setInterval(() => {
+      try {
+        const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document;
+        if (!doc) return;
+        const nodes = doc.querySelectorAll('body *');
+        nodes.forEach((node) => {
+          const el = node as HTMLElement;
+          if (el.tagName === 'SCRIPT') return;
+          el.style.setProperty('width', '100%', 'important');
+          el.style.setProperty('height', '100%', 'important');
+          el.style.setProperty('max-width', '100%', 'important');
+          el.style.setProperty('max-height', '100%', 'important');
+          el.style.setProperty('top', '0', 'important');
+          el.style.setProperty('left', '0', 'important');
+          el.style.setProperty('position', 'absolute', 'important');
+        });
+      } catch {
+        // Cross-origin fallback safety
+      }
+    }, 400);
 
     return () => {
-      observer.disconnect();
-      bodyObserver.disconnect();
       clearInterval(interval);
     };
-  }, []);
+  }, [onAdCompleted, onUserEarnedReward, onAdFailedToShow, onAdSkipped]);
 
   return (
     <div className="rewarded-ad-wrapper w-full max-w-full flex flex-col items-center justify-center my-2 text-center text-white overflow-hidden">
@@ -227,9 +261,12 @@ export function RewardedAdScript() {
       </span>
       {/* Aspect-ratio 16:9 responsive ad player container */}
       <div className="rewarded-ad-player-box w-full max-w-full aspect-video bg-slate-950 rounded-xl overflow-hidden border border-amber-400/30 relative flex items-center justify-center shadow-inner">
-        <div
-          ref={containerRef}
-          className="rewarded-ad-container w-full h-full max-w-full relative flex items-center justify-center overflow-hidden"
+        <iframe
+          ref={iframeRef}
+          title="Rewarded Ad Player"
+          className="w-full h-full border-none overflow-hidden"
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          scrolling="no"
         />
       </div>
     </div>

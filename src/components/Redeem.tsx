@@ -72,9 +72,9 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
         logo: '💲',
         color: '#26A17B',
         rates: [
-          { coins: minCoins, value: Number((minCoins / ratio).toFixed(2)) },
-          { coins: minCoins * 5, value: Number(((minCoins * 5) / ratio).toFixed(2)) },
-          { coins: minCoins * 20, value: Number(((minCoins * 20) / ratio).toFixed(2)) }
+          { coins: 10000, value: 1 },
+          { coins: 50000, value: 5 },
+          { coins: 100000, value: 10 }
         ]
       });
     }
@@ -87,9 +87,9 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
         logo: '💳',
         color: '#003087',
         rates: [
-          { coins: minCoins, value: Number((minCoins / ratio).toFixed(2)) },
-          { coins: minCoins * 5, value: Number(((minCoins * 5) / ratio).toFixed(2)) },
-          { coins: minCoins * 20, value: Number(((minCoins * 20) / ratio).toFixed(2)) }
+          { coins: 10000, value: 1 },
+          { coins: 50000, value: 5 },
+          { coins: 100000, value: 10 }
         ]
       });
     }
@@ -531,14 +531,14 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
               initial={{ scale: 0.9, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 30 }}
-              className="bg-[#FDFBF2] border-4 border-slate-900 rounded-[32px] p-6 max-w-sm w-full relative shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] z-10 text-slate-900"
+              className="bg-[#FDFBF2] border-4 border-slate-900 rounded-[32px] p-5 max-w-sm w-full max-h-[90vh] overflow-y-auto relative shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] z-10 text-slate-900"
             >
               
               {/* Close Button */}
               {!isSubmitting && (
                 <button 
                   onClick={() => setIsWithdrawModalOpen(false)}
-                  className="absolute top-4 right-4 w-9 h-9 bg-white border-2 border-slate-900 rounded-full flex items-center justify-center hover:bg-rose-50 transition-colors shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]"
+                  className="absolute top-4 right-4 w-9 h-9 bg-white border-2 border-slate-900 rounded-full flex items-center justify-center hover:bg-rose-50 transition-colors shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] z-20"
                 >
                   <X className="w-5 h-5 text-slate-900" />
                 </button>
@@ -546,100 +546,111 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
 
               {!redeemSuccess ? (
                 /* Withdrawal Flow */
-                <div className="flex flex-col py-2">
-                  <h3 className="text-2xl font-black text-slate-950 tracking-tight flex items-center gap-2 mb-1">
-                    <ArrowUpRight className="w-6 h-6 text-[#FF3B77]" />
-                    Withdrawal
-                  </h3>
-                  <p className="text-slate-400 font-bold text-xs mb-5">
-                    Select a secure payout provider below
-                  </p>
-
-                  {/* Provider Pills */}
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    {catalog.map((opt) => {
-                      const isSelected = selectedOption.id === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => handleSelectOption(opt)}
-                          className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border-3 border-slate-900 transition-all ${
-                            isSelected 
-                              ? 'bg-[#FFD043] font-black text-slate-950 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]' 
-                              : 'bg-white font-bold text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span className="text-lg">{opt.logo}</span>
-                          <span className="text-xs font-black truncate">{opt.name}</span>
-                        </button>
-                      );
-                    })}
+                <div className="flex flex-col py-1 space-y-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">💸</span>
+                    <h3 className="text-2xl font-black text-slate-950 tracking-tight">
+                      Withdraw SP
+                    </h3>
                   </div>
 
-                  {/* More payment options notice inside modal */}
-                  <div className="bg-amber-100 border-2 border-amber-400/90 rounded-xl px-2.5 py-1.5 mb-4 flex items-center justify-center gap-1.5 text-amber-950 shadow-xs">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600 stroke-[2.5px] animate-pulse shrink-0" />
-                    <span className="text-[10px] font-black uppercase tracking-tight">More payment options coming soon!</span>
+                  {/* Select an amount */}
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-600 mb-2">
+                      Select an amount:
+                    </label>
+                    <div className="space-y-2">
+                      {selectedOption.rates.map((rate, idx) => {
+                        const isSelected = selectedRateIndex === idx;
+                        const hasSufficient = stats.coins >= rate.coins;
+
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            disabled={!hasSufficient}
+                            onClick={() => { sound.playSlap(); setSelectedRateIndex(idx); }}
+                            className={`w-full p-3 rounded-2xl border-3 text-left flex items-center justify-between transition-all ${
+                              isSelected 
+                                ? 'bg-[#FFD043] border-slate-900 text-slate-950 font-black shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] scale-[1.01]' 
+                                : hasSufficient 
+                                  ? 'bg-white border-slate-900 text-slate-900 font-bold hover:bg-amber-50/60 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] cursor-pointer' 
+                                  : 'bg-slate-100 border-slate-300 text-slate-400 cursor-not-allowed opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-slate-900 bg-slate-900' : 'border-slate-400 bg-white'}`}>
+                                {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-[#FFD043]" />}
+                              </div>
+                              <span className="text-sm font-black">{rate.coins.toLocaleString()} SP</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-black text-slate-400">→</span>
+                              <span className={`text-sm font-black ${isSelected ? 'text-slate-950' : hasSufficient ? 'text-emerald-700' : 'text-slate-400'}`}>
+                                ${rate.value}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  {/* Tier options */}
-                  <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-2">
-                    Select Tier Value
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 mb-4">
-                    {selectedOption.rates.map((rate, idx) => {
-                      const isSelected = selectedRateIndex === idx;
-                      const hasSufficient = stats.coins >= rate.coins;
+                  {/* Payout Details */}
+                  <div className="bg-white border-3 border-slate-900 rounded-2xl p-3 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] space-y-2 text-xs font-bold text-slate-800">
+                    <div className="flex items-center justify-between border-b-2 border-slate-100 pb-1.5">
+                      <span className="text-slate-500 font-black text-[11px] uppercase">Payout:</span>
+                      <span className="font-black text-slate-950 bg-cyan-100 text-cyan-900 px-2 py-0.5 rounded-lg border border-slate-900 text-[11px]">
+                        USDT (TRC20)
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between border-b-2 border-slate-100 pb-1.5">
+                      <span className="text-slate-500 font-black text-[11px] uppercase">Payments:</span>
+                      <span className="font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-lg border border-slate-900 text-[11px]">
+                        Every Friday
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-black text-[11px] uppercase">Cut-off:</span>
+                      <span className="font-black text-amber-900 bg-amber-100 px-2 py-0.5 rounded-lg border border-slate-900 text-[11px]">
+                        Thursday 23:59
+                      </span>
+                    </div>
+                  </div>
 
-                      const tierLabel = `${rate.value} USDT`;
-
-                      return (
-                        <button
-                          key={idx}
-                          type="button"
-                          disabled={!hasSufficient}
-                          onClick={() => { sound.playSlap(); setSelectedRateIndex(idx); }}
-                          className={`p-3 rounded-xl border-3 border-slate-900 flex flex-col items-center justify-center transition-all ${
-                            isSelected 
-                              ? 'bg-[#FFEAF0] text-[#FF3B77] font-black border-[#FF3B77] shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]' 
-                              : hasSufficient 
-                                ? 'bg-white text-slate-700 font-bold hover:bg-slate-50' 
-                                : 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
-                          }`}
-                        >
-                          <span className="text-base font-black">{tierLabel}</span>
-                          <span className="text-[10px] opacity-80 font-mono">{rate.coins.toLocaleString()} SP</span>
-                        </button>
-                      );
-                    })}
+                  {/* Warning Note */}
+                  <div className="bg-amber-100 border-2 border-slate-900 rounded-xl p-2.5 flex items-start gap-2 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+                    <span className="text-sm shrink-0">⚠️</span>
+                    <p className="text-[11px] font-black text-slate-950 leading-snug">
+                      Make sure your USDT (TRC20) wallet address is correct.
+                    </p>
                   </div>
 
                   {/* Destination input form */}
-                  <form onSubmit={handleSubmitRedemption} className="space-y-4">
+                  <form onSubmit={handleSubmitRedemption} className="space-y-3 pt-1">
                     <div>
-                      <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5">
-                        USDT Wallet Address (TRC20 / BEP20)
+                      <label className="block text-xs font-black uppercase tracking-wider text-slate-600 mb-1.5">
+                        USDT Wallet Address (TRC20)
                       </label>
                       <input
                         type="text"
                         required
                         value={payoutDestination}
                         onChange={(e) => setPayoutDestination(e.target.value)}
-                        placeholder="e.g. 0x71C... or T9yD..."
-                        className="w-full bg-white border-3 border-slate-900 rounded-xl py-3 px-4 text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-[#FF3B77] transition-all"
+                        placeholder="e.g. T9yD... or TRC20 Wallet Address"
+                        className="w-full bg-white border-3 border-slate-900 rounded-xl py-2.5 px-3.5 text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-[#FF3B77] transition-all shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]"
                       />
                     </div>
 
                     <button
                       type="submit"
-                      disabled={isSubmitting || !payoutDestination.trim()}
+                      disabled={isSubmitting || !payoutDestination.trim() || stats.coins < (selectedOption?.rates[selectedRateIndex]?.coins ?? minCoins)}
                       className="w-full bg-[#FF3B77] border-4 border-slate-900 text-white font-black text-sm py-3.5 rounded-2xl shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] hover:bg-[#E33D6F] transition-all active:scale-95 disabled:opacity-55 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
                     >
                       {isSubmitting ? (
                         <>
                           <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                          <span>Auditing security logs...</span>
+                          <span>Processing...</span>
                         </>
                       ) : (
                         <>

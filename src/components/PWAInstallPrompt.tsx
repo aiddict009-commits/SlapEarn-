@@ -41,13 +41,20 @@ export const PWAInstallPrompt: React.FC = () => {
       setDeferredPrompt(window.deferredPWAInstallPrompt);
     }
 
-    // Listen for beforeinstallprompt event (Android / Chrome / Edge)
+    // Listen for beforeinstallprompt & pwa-installable custom events
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       const promptEvent = e as BeforeInstallPromptEvent;
       window.deferredPWAInstallPrompt = promptEvent;
       setDeferredPrompt(promptEvent);
       setShowPrompt(true);
+    };
+
+    const handleCustomInstallable = () => {
+      if (window.deferredPWAInstallPrompt) {
+        setDeferredPrompt(window.deferredPWAInstallPrompt);
+        setShowPrompt(true);
+      }
     };
 
     const handleAppInstalled = () => {
@@ -57,19 +64,31 @@ export const PWAInstallPrompt: React.FC = () => {
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('pwa-installable', handleCustomInstallable);
     window.addEventListener('appinstalled', handleAppInstalled);
+
+    // Poll for early deferred prompt if event fired before component mount
+    const timer = setInterval(() => {
+      if (window.deferredPWAInstallPrompt) {
+        setDeferredPrompt(window.deferredPWAInstallPrompt);
+      }
+    }, 500);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('pwa-installable', handleCustomInstallable);
       window.removeEventListener('appinstalled', handleAppInstalled);
+      clearInterval(timer);
     };
   }, []);
 
   const handleInstallClick = async () => {
+    // Retrieve freshest prompt event attached to window or state
     const activePrompt = deferredPrompt || window.deferredPWAInstallPrompt;
 
     if (activePrompt) {
       try {
+        // Trigger browser's native 1-click install prompt modal
         await activePrompt.prompt();
         const { outcome } = await activePrompt.userChoice;
         if (outcome === 'accepted') {
@@ -79,7 +98,7 @@ export const PWAInstallPrompt: React.FC = () => {
         setDeferredPrompt(null);
         window.deferredPWAInstallPrompt = undefined;
       } catch (err) {
-        console.warn('[PWA] Native prompt trigger issue, showing install guide:', err);
+        console.warn('[PWA] Native prompt trigger issue, falling back to guide:', err);
         if (isIOS) {
           setShowIOSGuide(true);
         } else {

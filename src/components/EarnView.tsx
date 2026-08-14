@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PlayCircle, RotateCw, ClipboardList, Users, Hand, X, Gift, Trophy, Sparkles, Clock, ArrowLeft, CheckCircle2, ChevronRight, ExternalLink, Flame, ShieldCheck, Zap, Star, Lock, Save, Calendar, MapPin, GraduationCap, Briefcase, Heart, DollarSign, Globe, UserCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import { UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from '../types';
 import { sound } from '../utils/sound';
 import { proxyGuard, NetworkSecurityStatus } from '../utils/proxyGuard';
-import { triggerRewardedAdScript, RewardedAdScript } from './AdsterraAds';
+import { triggerRewardedAdScript, RewardedAdScript, checkRewardedAdLoaded } from './AdsterraAds';
 
 interface OfferItem {
   id: string;
@@ -28,58 +30,6 @@ interface OfferwallPartner {
 }
 
 const OFFERWALL_PARTNERS: OfferwallPartner[] = [
-  {
-    id: 'mylead-opinion',
-    name: 'MyLead Opinion Survey',
-    badge: '⭐ HIGH-PAYING SURVEYS',
-    badgeColor: 'bg-amber-400 text-slate-950',
-    icon: '📝',
-    description: 'High-paying consumer opinion surveys, market research polls, and brand preference studies.',
-    avgReward: '850 – 3,200 SP',
-    estTime: '4 – 12 mins',
-    offers: [
-      {
-        id: 'mylead-op-1',
-        title: 'Global Consumer Tech & Smart Devices Opinion 2026',
-        rewardSp: 1850,
-        time: '8 mins',
-        type: 'Market Opinion',
-        description: 'Complete the MyLead Opinion Survey regarding smartphones, wearables, and smart home gadgets.'
-      },
-      {
-        id: 'mylead-op-2',
-        title: 'Streaming Services & Digital Media Habits',
-        rewardSp: 1200,
-        time: '6 mins',
-        type: 'Media Survey',
-        description: 'Provide feedback on video streaming platforms, podcast preferences, and subscription services.'
-      },
-      {
-        id: 'mylead-op-3',
-        title: 'Automotive & Electric Vehicle Future Buyer Survey',
-        rewardSp: 2500,
-        time: '10 mins',
-        type: 'Industry Research',
-        description: 'Answer questions about electric vehicles, autonomous driving tech, and car ownership.'
-      },
-      {
-        id: 'mylead-op-4',
-        title: 'Fast Food & Daily Dining Preferences Study',
-        rewardSp: 950,
-        time: '4 mins',
-        type: 'Consumer Poll',
-        description: 'Quick MyLead Opinion survey on restaurant delivery apps and daily dining habits.'
-      },
-      {
-        id: 'mylead-op-5',
-        title: 'Travel, Hospitality & Airline Booking Experience',
-        rewardSp: 1600,
-        time: '7 mins',
-        type: 'Travel Survey',
-        description: 'Share your vacation planning routines, airline experiences, and hotel choices.'
-      }
-    ]
-  },
   {
     id: 'mylead',
     name: 'MyLead Offerwall',
@@ -131,6 +81,105 @@ const OFFERWALL_PARTNERS: OfferwallPartner[] = [
         description: 'Evaluate AI productivity tools and software you use daily.'
       }
     ]
+  },
+  {
+    id: 'cpx',
+    name: 'CPX Research',
+    badge: '📊 GLOBAL SURVEYS',
+    badgeColor: 'bg-amber-400 text-slate-950',
+    icon: '📊',
+    description: 'Highest-paying global survey router with 180+ country fill rates & disqualification bonuses.',
+    avgReward: '1,500 – 6,000 SP',
+    estTime: '5 – 15 mins',
+    offers: []
+  },
+  {
+    id: 'torox',
+    name: 'ToroX (OfferToro)',
+    badge: '🎮 TOP GAME OFFERS',
+    badgeColor: 'bg-purple-500 text-white',
+    icon: '🎮',
+    description: 'Leading global offerwall for high-paying mobile game achievements, app downloads, & trials.',
+    avgReward: '2,000 – 12,000 SP',
+    estTime: '10 – 25 mins',
+    offers: [
+      {
+        id: 'torox-1',
+        title: 'Shadow Conquest: Upgrade Castle to Level 10',
+        rewardSp: 7500,
+        time: '20 mins',
+        type: 'Mobile Game',
+        description: 'Download Shadow Conquest via ToroX, complete tutorial, and upgrade main castle.'
+      },
+      {
+        id: 'torox-2',
+        title: 'Crypto Invest App: Register & Verify ID',
+        rewardSp: 4800,
+        time: '10 mins',
+        type: 'App Trial',
+        description: 'Sign up for Crypto Invest, complete basic KYC verification to claim 4,800 SP.'
+      },
+      {
+        id: 'torox-3',
+        title: 'Cyber Racer 3D: Reach Stage 15',
+        rewardSp: 3200,
+        time: '15 mins',
+        type: 'Game Achievement',
+        description: 'Install Cyber Racer 3D, finish 15 stages, and unlock your first rare supercar.'
+      },
+      {
+        id: 'torox-4',
+        title: 'Smart Budgeting Tool: 7-Day Free Trial',
+        rewardSp: 5100,
+        time: '8 mins',
+        type: 'App Install',
+        description: 'Start a free 7-day trial on Smart Budgeting and link your first savings goal.'
+      }
+    ]
+  },
+  {
+    id: 'monlix',
+    name: 'Monlix Offerwall',
+    badge: '💎 MULTI-DEVICE OFFERS',
+    badgeColor: 'bg-cyan-400 text-slate-950',
+    icon: '⚡',
+    description: 'Modern offerwall featuring fast-crediting surveys, app testing, and quick web tasks worldwide.',
+    avgReward: '1,000 – 8,000 SP',
+    estTime: '3 – 12 mins',
+    offers: [
+      {
+        id: 'monlix-1',
+        title: 'Quick Consumer Opinion & Brand Survey',
+        rewardSp: 1750,
+        time: '5 mins',
+        type: 'Fast Survey',
+        description: 'Rapid-crediting Monlix survey on daily consumer products and retail brands.'
+      },
+      {
+        id: 'monlix-2',
+        title: 'Test New Mobile Browser & Visit 3 Pages',
+        rewardSp: 1100,
+        time: '3 mins',
+        type: 'App Testing',
+        description: 'Install Monlix-sponsored browser, open 3 websites, and keep app open for 2 mins.'
+      },
+      {
+        id: 'monlix-3',
+        title: 'Play Puzzle Kingdom & Clear Level 25',
+        rewardSp: 4200,
+        time: '12 mins',
+        type: 'Puzzle Game',
+        description: 'Reach Level 25 in Puzzle Kingdom to earn instant 4,200 SP reward.'
+      },
+      {
+        id: 'monlix-4',
+        title: 'Web Task: E-Commerce Price Comparison Test',
+        rewardSp: 1450,
+        time: '4 mins',
+        type: 'Web Task',
+        description: 'Perform a simple search on price comparison portal and rate search accuracy.'
+      }
+    ]
   }
 ];
 
@@ -158,6 +207,59 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
   const [spinDegrees, setSpinDegrees] = useState<number>(0);
   const [spinResult, setSpinResult] = useState<string | null>(null);
+
+  // User Identity for Offerwall / Survey Routers
+  const [currentUserId, setCurrentUserId] = useState<string>(() => auth.currentUser?.uid || localStorage.getItem('slapearn_active_uid') || localStorage.getItem('slapearn_uid') || 'guest_user');
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>(() => auth.currentUser?.email || '');
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const script2 = { div_id: "sidebar", theme_style: 1, order_by: 1 };
+      const script4 = { div_id: "notification", theme_style: 4, position: 5, text: "", link: "", newtab: true };
+
+      const userId = user?.uid || localStorage.getItem('slapearn_active_uid') || localStorage.getItem('slapearn_uid') || 'guest_user';
+      const userEmail = user?.email || "";
+
+      setCurrentUserId(userId);
+      setCurrentUserEmail(userEmail);
+
+      const cpxConfig = {
+        general_config: {
+          app_id: 35262,
+          ext_user_id: userId,
+          email: userEmail,
+        },
+        script_config: [script2, script4],
+        style_config: {
+          topbar_background_color: "#ffaf20"
+        }
+      };
+
+      (window as any).config = cpxConfig;
+      (window as any).cpx_config = cpxConfig;
+
+      // Dynamically load https://cdn.cpx-research.com/assets/js/cpxresearch.js
+      const scriptId = 'cpx-research-js-script';
+      const oldScript = document.getElementById(scriptId);
+      if (oldScript) {
+        oldScript.remove();
+      }
+
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://cdn.cpx-research.com/assets/js/cpxresearch.js';
+      script.async = true;
+      script.onerror = () => {
+        console.warn('[CPX Research] Script failed to load from CDN');
+      };
+      document.body.appendChild(script);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   const [isPointerWobbling, setIsPointerWobbling] = useState<boolean>(false);
 
   // Wheel Cooldown tracking state
@@ -217,6 +319,41 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
   // Offerwall & Survey states
   const [surveyTab, setSurveyTab] = useState<'offerwalls' | 'profile_survey'>('offerwalls');
   const [selectedOfferwall, setSelectedOfferwall] = useState<OfferwallPartner | null>(null);
+
+  // Re-trigger CPX script load whenever CPX Research offerwall is selected
+  useEffect(() => {
+    if (selectedOfferwall?.id === 'cpx') {
+      const script2 = { div_id: "sidebar", theme_style: 1, order_by: 1 };
+      const script4 = { div_id: "notification", theme_style: 4, position: 5, text: "", link: "", newtab: true };
+
+      const cpxConfig = {
+        general_config: {
+          app_id: 35262,
+          ext_user_id: currentUserId,
+          email: currentUserEmail,
+        },
+        script_config: [script2, script4],
+        style_config: {
+          topbar_background_color: "#ffaf20"
+        }
+      };
+
+      (window as any).config = cpxConfig;
+      (window as any).cpx_config = cpxConfig;
+
+      const scriptId = 'cpx-research-js-script';
+      const oldScript = document.getElementById(scriptId);
+      if (oldScript) {
+        oldScript.remove();
+      }
+
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://cdn.cpx-research.com/assets/js/cpxresearch.js';
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, [selectedOfferwall?.id, currentUserId, currentUserEmail]);
   const [activeOfferPrompt, setActiveOfferPrompt] = useState<OfferItem | null>(null);
   const [offerCompleting, setOfferCompleting] = useState<boolean>(false);
   const [offerProgress, setOfferProgress] = useState<number>(0);
@@ -453,6 +590,14 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
       return;
     }
 
+    // Step 1: Check if ad is loaded
+    if (!checkRewardedAdLoaded()) {
+      sound.playError();
+      addNotification('Ad Not Loaded', 'Ad is not loaded yet, please try again.', 'info');
+      triggerRewardedAdScript(); // Attempt preloading for next tap
+      return;
+    }
+
     sound.playSlap();
     triggerRewardedAdScript();
     setActiveModal('ad');
@@ -466,38 +611,58 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
       setAdCountdown(remaining);
       if (remaining <= 0) {
         clearInterval(timer);
-        setIsAdPlaying(false);
-        setAdFinished(true);
-        sound.playSuccess();
-
-        const nextLifetime = (stats.totalAdsWatchedLifetime || 0) + 1;
-        const nextToday = (stats.adsWatchedToday ?? 0) + 1;
-
-        let updateObj: Partial<UserStats> = {
-          slapsToday: Math.max(0, stats.slapsToday - 3),
-          adsWatchedToday: nextToday,
-          totalAdsWatchedLifetime: nextLifetime
-        };
-
-        const awardedAdSp = spPerAd * doubleSpMultiplier;
-        updateCoinsAndXp(awardedAdSp, 10, 'Ad', 'Watched Video Ad');
-
-        // Check 20-ads milestone for referee reward
-        if (nextLifetime >= 20 && !stats.referredByRewardClaimed && stats.referredByCode) {
-          updateObj.referredByRewardClaimed = true;
-          updateCoinsAndXp(referralSpBonus, 15, 'Ad', '20-Ads Referee Reward');
-          addNotification(
-            '🎉 20 Ads Milestone Reached!',
-            `You watched your first 20 ads! You & your referrer both received +${referralSpBonus} SP!`,
-            'success'
-          );
-        } else {
-          addNotification('Ad Completed!', `+3 slaps refilled & +${awardedAdSp} SP earned!`, 'success');
-        }
-
-        updateStatsDirectly(updateObj);
+        handleEarnAdSuccess();
       }
     }, 1000);
+
+    (window as any).currentEarnAdTimer = timer;
+  };
+
+  const handleEarnAdSuccess = () => {
+    if ((window as any).currentEarnAdTimer) {
+      clearInterval((window as any).currentEarnAdTimer);
+    }
+    setIsAdPlaying(false);
+    setAdFinished(true);
+    sound.playSuccess();
+
+    const nextLifetime = (stats.totalAdsWatchedLifetime || 0) + 1;
+    const nextToday = (stats.adsWatchedToday ?? 0) + 1;
+
+    let updateObj: Partial<UserStats> = {
+      slapsToday: Math.max(0, stats.slapsToday - 3),
+      adsWatchedToday: nextToday,
+      totalAdsWatchedLifetime: nextLifetime
+    };
+
+    const awardedAdSp = spPerAd * doubleSpMultiplier;
+    updateCoinsAndXp(awardedAdSp, 10, 'Ad', 'Watched Video Ad');
+
+    // Check 20-ads milestone for referee reward
+    if (nextLifetime >= 20 && !stats.referredByRewardClaimed && stats.referredByCode) {
+      updateObj.referredByRewardClaimed = true;
+      updateCoinsAndXp(referralSpBonus, 15, 'Ad', '20-Ads Referee Reward');
+      addNotification(
+        '🎉 20 Ads Milestone Reached!',
+        `You watched your first 20 ads! You & your referrer both received +${referralSpBonus} SP!`,
+        'success'
+      );
+    } else {
+      addNotification('Ad Completed!', `+3 slaps refilled & +${awardedAdSp} SP earned!`, 'success');
+    }
+
+    updateStatsDirectly(updateObj);
+  };
+
+  const handleEarnAdFailedOrSkipped = () => {
+    if ((window as any).currentEarnAdTimer) {
+      clearInterval((window as any).currentEarnAdTimer);
+    }
+    setIsAdPlaying(false);
+    setAdFinished(false);
+    setActiveModal(null);
+    sound.playError();
+    addNotification('Ad Incomplete', 'Ad didn\'t complete, try again', 'info');
   };
 
   const hasFreeSpins = (stats.freeSpins || 0) > 0;
@@ -713,12 +878,16 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
     setInputRefCode('');
   };
 
+  // Helper to get user's referral code & link
+  const userRefCode = stats.myReferralCode || (`SLAP-${stats.username ? stats.username.toUpperCase() : 'USER'}`);
+  const userRefLink = `https://slapearn.ai.studio/?ref=${userRefCode}`;
+
   // Handle Copy Referral
   const copyReferral = () => {
-    navigator.clipboard.writeText('https://slapearn.app/ref/SLAP-' + stats.coins);
+    navigator.clipboard.writeText(userRefLink);
     setIsCopied(true);
     sound.playSuccess();
-    addNotification('Link Copied!', 'Share link with friends to earn 100 SP once they watch 20 ads!', 'success');
+    addNotification('Link Copied!', `Share your link (${userRefLink}) with friends to earn 100 SP once they watch 20 ads!`, 'success');
     setTimeout(() => setIsCopied(false), 2000);
   };
 
@@ -811,14 +980,14 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
           </button>
         </div>
 
-        {/* TASK 3: Offerwalls and Surveys */}
+        {/* TASK 3: Offerwalls & Surveys */}
         <div className="bg-white rounded-[24px] border-4 border-slate-900 p-3.5 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between">
           <div className="flex items-center">
             <div className="w-14 h-14 bg-[#4965FF] border-4 border-slate-900 rounded-[20px] flex items-center justify-center shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)]">
               <ClipboardList className="w-7 h-7 text-white stroke-[2.5px]" />
             </div>
             <div className="flex flex-col ml-4">
-              <span className="text-slate-950 font-black text-[15px] sm:text-[16px] leading-tight">Offerwalls and Surveys</span>
+              <span className="text-slate-950 font-black text-[15px] sm:text-[16px] leading-tight">Offerwalls & Surveys</span>
               <span className="text-slate-400 font-black text-[13px] mt-0.5">Earn 1000+ SP</span>
             </div>
           </div>
@@ -826,12 +995,11 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
           <button
             onClick={() => { 
               sound.playSlap(); 
-              setSurveyTab('offerwalls');
               setSelectedOfferwall(null);
               setActiveOfferPrompt(null);
               setActiveModal('survey'); 
             }}
-            className="font-black text-sm px-5 py-2 rounded-[16px] border-3 border-slate-900 bg-white hover:bg-[#FFEED1] text-slate-950 active:scale-95 transition-all"
+            className="font-black text-sm px-5 py-2 rounded-[16px] border-3 border-slate-900 bg-white hover:bg-[#FFEED1] text-slate-950 active:scale-95 transition-all cursor-pointer"
           >
             Start
           </button>
@@ -918,8 +1086,20 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                       </div>
 
                       <div className="w-full mt-4">
-                        <RewardedAdScript />
+                        <RewardedAdScript
+                          onAdCompleted={handleEarnAdSuccess}
+                          onUserEarnedReward={handleEarnAdSuccess}
+                          onAdFailedToShow={handleEarnAdFailedOrSkipped}
+                          onAdSkipped={handleEarnAdFailedOrSkipped}
+                        />
                       </div>
+
+                      <button
+                        onClick={handleEarnAdFailedOrSkipped}
+                        className="mt-4 w-full py-2.5 rounded-xl border-2 border-slate-300 bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-black text-xs uppercase tracking-wider transition-all"
+                      >
+                        Cancel / Skip Ad
+                      </button>
                     </>
                   ) : adFinished ? (
                     <>
@@ -1090,7 +1270,7 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                 </div>
               )}
 
-              {/* 3. OFFERWALLS & SURVEYS PROMPT MODAL */}
+              {/* 3. OFFERWALLS PROMPT MODAL */}
               {activeModal === 'survey' && (
                 <div className="flex flex-col h-full w-full text-slate-900 overflow-hidden">
                   {/* Top Header */}
@@ -1108,43 +1288,8 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                     </div>
                   </div>
 
-                  {/* Mode Selector Tabs */}
-                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl border-2 border-slate-900 mb-2.5 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] shrink-0">
-                    <button
-                      onClick={() => {
-                        sound.playSlap();
-                        setSurveyTab('offerwalls');
-                      }}
-                      className={`py-2 text-xs font-black rounded-xl border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                        surveyTab === 'offerwalls'
-                          ? 'bg-[#4965FF] text-white border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
-                          : 'border-transparent text-slate-600 hover:text-slate-950'
-                      }`}
-                    >
-                      <span>🔥 Offerwalls</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        sound.playSlap();
-                        setSurveyTab('profile_survey');
-                        setSelectedOfferwall(null);
-                        setActiveOfferPrompt(null);
-                      }}
-                      className={`py-2 text-xs font-black rounded-xl border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                        surveyTab === 'profile_survey'
-                          ? 'bg-[#00D09E] text-slate-950 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
-                          : 'border-transparent text-slate-600 hover:text-slate-950'
-                      }`}
-                    >
-                      <span>
-                        📋 Surveys {stats.surveyProfile?.completedOnce ? '✓' : '(+500 SP)'}
-                      </span>
-                    </button>
-                  </div>
-
-                  {/* TAB 1: OFFERWALLS */}
-                  {surveyTab === 'offerwalls' && (
-                    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                  {/* OFFERWALLS CONTENT */}
+                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                       {selectedOfferwall ? (
                         <div className="flex-1 min-h-0 flex flex-col">
                           {/* Back Header */}
@@ -1169,12 +1314,29 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                             /* Live MyLead Offerwall Responsive Iframe Container */
                             <div className="w-full flex-1 min-h-0 bg-white rounded-2xl border-3 border-slate-900 overflow-hidden shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] relative">
                               <iframe
-                                src="https://reward-me.eu/38da6ec4-8f23-11f1-8b2a-129a1c289511"
+                                src={`https://reward-me.eu/38da6ec4-8f23-11f1-8b2a-129a1c289511?subid=${encodeURIComponent(currentUserId)}&sub1=${encodeURIComponent(currentUserId)}`}
                                 title="MyLead Offerwall"
                                 className="w-full h-full border-none rounded-xl"
                                 style={{ width: '100%', height: '100%', border: 'none', WebkitOverflowScrolling: 'touch' }}
                                 allow="geolocation; microphone; camera; clipboard-write"
                               />
+                            </div>
+                          ) : selectedOfferwall.id === 'cpx' ? (
+                            /* Live CPX Research Wall & Survey Container */
+                            <div className="w-full flex-1 min-h-0 bg-white rounded-2xl border-3 border-slate-900 p-3 overflow-y-auto shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] relative flex flex-col gap-3">
+                              {/* Live CPX Research Official Wall Iframe */}
+                              <div className="w-full h-[520px] min-h-[480px] bg-slate-50 rounded-xl border-2 border-slate-900 overflow-hidden shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] relative shrink-0">
+                                <iframe
+                                  src={`https://offers.cpx-research.com/index.php?app_id=35262&ext_user_id=${encodeURIComponent(currentUserId)}&email=${encodeURIComponent(currentUserEmail)}&subid_1=${encodeURIComponent(currentUserId)}`}
+                                  title="CPX Research Live Survey Wall"
+                                  className="w-full h-full border-none rounded-xl"
+                                  style={{ width: '100%', height: '100%', border: 'none', WebkitOverflowScrolling: 'touch' }}
+                                  allow="geolocation; microphone; camera; clipboard-write"
+                                />
+                              </div>
+
+                              <div id="notification"></div>
+                              <div id="sidebar" className="w-full rounded-xl overflow-hidden min-h-[50px]"></div>
                             </div>
                           ) : (
                             /* Partner Offers Subview (e.g. MyLead Opinion Survey) */
@@ -1218,6 +1380,13 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                             Select an Offerwall Provider
                           </span>
 
+                          <div className="bg-amber-100 border-2 border-slate-900 rounded-xl p-2.5 flex items-start gap-2 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+                            <Globe className="w-4 h-4 text-slate-900 shrink-0 mt-0.5" />
+                            <p className="text-[11px] font-black text-slate-900 leading-snug">
+                              Offers available depend on your country. Some may not be available in all African countries.
+                            </p>
+                          </div>
+
                           {OFFERWALL_PARTNERS.map((partner) => (
                             <div
                               key={partner.id}
@@ -1260,349 +1429,6 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                         </div>
                       )}
                     </div>
-                  )}
-
-                  {/* TAB 2: SURVEY PROFILE */}
-                  {surveyTab === 'profile_survey' && (
-                    <div className="flex-1 overflow-y-auto pr-1 flex flex-col py-1 text-slate-900">
-                      {/* Profile Header & Completion Stats */}
-                      <div className="bg-[#EBF3FF] border-2 border-slate-900 rounded-2xl p-3 mb-3 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
-                        <div className="flex justify-between items-center mb-1.5">
-                          <div className="flex items-center gap-1.5 text-xs font-black text-slate-950">
-                            <UserCheck className="w-4 h-4 text-[#4965FF]" />
-                            <span>Profile Completion: {calculateProfileCompletion()}%</span>
-                          </div>
-                          <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
-                            {stats.surveyProfile?.completedOnce ? (
-                              <>
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> +500 SP Claimed
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="w-3 h-3 text-emerald-600" /> +500 SP First Time
-                              </>
-                            )}
-                          </span>
-                        </div>
-
-                        {/* Progress Bar */}
-                        <div className="w-full bg-slate-200 h-2.5 rounded-full border border-slate-900 overflow-hidden mb-1.5">
-                          <div
-                            className="bg-gradient-to-r from-[#4965FF] to-[#00D09E] h-full transition-all duration-300"
-                            style={{ width: `${calculateProfileCompletion()}%` }}
-                          />
-                        </div>
-
-                        <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
-                          <span>Info shared securely with survey partners</span>
-                          <span className="font-mono text-slate-600">
-                            Updated: {stats.surveyProfile?.lastUpdated || 'Never'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Survey Eligibility Form Fields */}
-                      <div className="flex flex-col gap-3 max-h-[360px] overflow-y-auto pr-1">
-                        
-                        {/* 1. Date of Birth (Locked once saved) */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-xs font-black text-slate-950 flex items-center gap-1">
-                              <Calendar className="w-3.5 h-3.5 text-[#4965FF]" /> Date of Birth
-                            </label>
-                            {profileDobLocked && (
-                              <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-400 px-1.5 py-0.2 rounded flex items-center gap-0.5">
-                                <Lock className="w-2.5 h-2.5" /> Locked
-                              </span>
-                            )}
-                          </div>
-                          <input
-                            type="date"
-                            value={profileDob}
-                            disabled={profileDobLocked}
-                            onChange={(e) => setProfileDob(e.target.value)}
-                            className={`w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 ${
-                              profileDobLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'
-                            }`}
-                          />
-                        </div>
-
-                        {/* 2. Gender */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                          <label className="text-xs font-black text-slate-950 block mb-1">Gender</label>
-                          <select
-                            value={profileGender}
-                            onChange={(e) => setProfileGender(e.target.value)}
-                            className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
-                          >
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                            <option value="Non-Binary">Non-Binary</option>
-                            <option value="Prefer not to say">Prefer not to say</option>
-                          </select>
-                        </div>
-
-                        {/* 3. Country (Locked once saved) */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-xs font-black text-slate-950 flex items-center gap-1">
-                              <Globe className="w-3.5 h-3.5 text-[#4965FF]" /> Country
-                            </label>
-                            {profileCountryLocked && (
-                              <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-400 px-1.5 py-0.2 rounded flex items-center gap-0.5">
-                                <Lock className="w-2.5 h-2.5" /> Locked
-                              </span>
-                            )}
-                          </div>
-                          <select
-                            value={profileCountry}
-                            disabled={profileCountryLocked}
-                            onChange={(e) => setProfileCountry(e.target.value)}
-                            className={`w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 ${
-                              profileCountryLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900 cursor-pointer'
-                            }`}
-                          >
-                            <option value="United States">United States</option>
-                            <option value="United Kingdom">United Kingdom</option>
-                            <option value="Canada">Canada</option>
-                            <option value="Australia">Australia</option>
-                            <option value="Germany">Germany</option>
-                            <option value="France">France</option>
-                            <option value="Japan">Japan</option>
-                            <option value="Nigeria">Nigeria</option>
-                            <option value="Philippines">Philippines</option>
-                            <option value="India">India</option>
-                            <option value="Brazil">Brazil</option>
-                            <option value="Other">Other</option>
-                          </select>
-                        </div>
-
-                        {/* 4. State/Province & City/Town (2 column grid) */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                            <label className="text-[11px] font-black text-slate-950 block mb-1">State/Province</label>
-                            <input
-                              type="text"
-                              value={profileState}
-                              placeholder="e.g. California"
-                              onChange={(e) => setProfileState(e.target.value)}
-                              className="w-full text-xs font-bold px-2.5 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900"
-                            />
-                          </div>
-                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                            <label className="text-[11px] font-black text-slate-950 block mb-1">City/Town</label>
-                            <input
-                              type="text"
-                              value={profileCity}
-                              placeholder="e.g. Los Angeles"
-                              onChange={(e) => setProfileCity(e.target.value)}
-                              className="w-full text-xs font-bold px-2.5 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900"
-                            />
-                          </div>
-                        </div>
-
-                        {/* 5. ZIP/Postal Code (Locked once saved) */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-xs font-black text-slate-950 flex items-center gap-1">
-                              <MapPin className="w-3.5 h-3.5 text-[#4965FF]" /> ZIP / Postal Code
-                            </label>
-                            {profileZipCodeLocked && (
-                              <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-400 px-1.5 py-0.2 rounded flex items-center gap-0.5">
-                                <Lock className="w-2.5 h-2.5" /> Locked
-                              </span>
-                            )}
-                          </div>
-                          <input
-                            type="text"
-                            value={profileZipCode}
-                            disabled={profileZipCodeLocked}
-                            placeholder="e.g. 90210"
-                            onChange={(e) => setProfileZipCode(e.target.value)}
-                            className={`w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 ${
-                              profileZipCodeLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'
-                            }`}
-                          />
-                        </div>
-
-                        {/* 6. Highest Education Level */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                          <label className="text-xs font-black text-slate-950 flex items-center gap-1 mb-1">
-                            <GraduationCap className="w-3.5 h-3.5 text-[#4965FF]" /> Highest Education Level
-                          </label>
-                          <select
-                            value={profileEducation}
-                            onChange={(e) => setProfileEducation(e.target.value)}
-                            className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
-                          >
-                            <option value="High School">High School / GED</option>
-                            <option value="Some College">Some College</option>
-                            <option value="Associate Degree">Associate Degree</option>
-                            <option value="Bachelor's Degree">Bachelor's Degree</option>
-                            <option value="Master's Degree">Master's Degree</option>
-                            <option value="Doctorate / Ph.D.">Doctorate / Ph.D.</option>
-                            <option value="Trade / Vocational">Trade / Vocational</option>
-                          </select>
-                        </div>
-
-                        {/* 7. Employment Status & Occupation */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] flex flex-col gap-2">
-                          <div>
-                            <label className="text-xs font-black text-slate-950 flex items-center gap-1 mb-1">
-                              <Briefcase className="w-3.5 h-3.5 text-[#4965FF]" /> Employment Status
-                            </label>
-                            <select
-                              value={profileEmployment}
-                              onChange={(e) => setProfileEmployment(e.target.value)}
-                              className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
-                            >
-                              <option value="Full-Time">Employed Full-Time</option>
-                              <option value="Part-Time">Employed Part-Time</option>
-                              <option value="Self-Employed / Freelancer">Self-Employed / Freelancer</option>
-                              <option value="Student">Student</option>
-                              <option value="Unemployed">Unemployed</option>
-                              <option value="Retired">Retired</option>
-                              <option value="Homemaker">Homemaker</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="text-xs font-black text-slate-950 block mb-1">Occupation Industry</label>
-                            <select
-                              value={profileOccupation}
-                              onChange={(e) => setProfileOccupation(e.target.value)}
-                              className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
-                            >
-                              <option value="Technology & IT">Technology & IT</option>
-                              <option value="Healthcare & Medical">Healthcare & Medical</option>
-                              <option value="Finance & Business">Finance & Business</option>
-                              <option value="Education">Education</option>
-                              <option value="Creative & Design">Creative & Design</option>
-                              <option value="Sales & Marketing">Sales & Marketing</option>
-                              <option value="Engineering">Engineering</option>
-                              <option value="Student / Academic">Student / Academic</option>
-                              <option value="Other">Other</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* 8. Marital Status & Children */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                            <label className="text-[11px] font-black text-slate-950 flex items-center gap-1 mb-1">
-                              <Heart className="w-3 h-3 text-rose-500" /> Marital Status
-                            </label>
-                            <select
-                              value={profileMaritalStatus}
-                              onChange={(e) => setProfileMaritalStatus(e.target.value)}
-                              className="w-full text-xs font-bold px-2 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
-                            >
-                              <option value="Single">Single</option>
-                              <option value="Married">Married</option>
-                              <option value="In a relationship">In a relationship</option>
-                              <option value="Divorced">Divorced</option>
-                              <option value="Widowed">Widowed</option>
-                            </select>
-                          </div>
-
-                          <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                            <label className="text-[11px] font-black text-slate-950 block mb-1">Children</label>
-                            <select
-                              value={profileChildren}
-                              onChange={(e) => setProfileChildren(e.target.value)}
-                              className="w-full text-xs font-bold px-2 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
-                            >
-                              <option value="None">None</option>
-                              <option value="1 Child">1 Child</option>
-                              <option value="2 Children">2 Children</option>
-                              <option value="3 Children">3 Children</option>
-                              <option value="4+ Children">4+ Children</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* 9. Household Income Range */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                          <label className="text-xs font-black text-slate-950 flex items-center gap-1 mb-1">
-                            <DollarSign className="w-3.5 h-3.5 text-emerald-600" /> Household Income Range
-                          </label>
-                          <select
-                            value={profileIncome}
-                            onChange={(e) => setProfileIncome(e.target.value)}
-                            className="w-full text-xs font-bold px-3 py-2 rounded-lg border-2 border-slate-900 bg-white text-slate-900 cursor-pointer"
-                          >
-                            <option value="Under $25,000">Under $25,000</option>
-                            <option value="$25,000 - $49,999">$25,000 - $49,999</option>
-                            <option value="$50,000 - $74,999">$50,000 - $74,999</option>
-                            <option value="$75,000 - $99,999">$75,000 - $99,999</option>
-                            <option value="$100,000 - $149,999">$100,000 - $149,999</option>
-                            <option value="$150,000+">$150,000+</option>
-                          </select>
-                        </div>
-
-                        {/* 10. Languages Spoken */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                          <label className="text-xs font-black text-slate-950 block mb-1.5">Languages Spoken</label>
-                          <div className="flex flex-wrap gap-1.5">
-                            {['English', 'Spanish', 'French', 'German', 'Mandarin', 'Japanese', 'Tagalog', 'Arabic', 'Portuguese', 'Hindi'].map((lang) => {
-                              const isSelected = profileLanguages.includes(lang);
-                              return (
-                                <button
-                                  key={lang}
-                                  type="button"
-                                  onClick={() => toggleLanguage(lang)}
-                                  className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg border transition-all cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-[#4965FF] text-white border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
-                                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
-                                  }`}
-                                >
-                                  {lang} {isSelected && '✓'}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* 11. Interests (Select Multiple) */}
-                        <div className="bg-white border-2 border-slate-900 rounded-xl p-2.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                          <label className="text-xs font-black text-slate-950 block mb-1.5">Interests (Select multiple)</label>
-                          <div className="flex flex-wrap gap-1.5">
-                            {['Technology', 'Gaming', 'Finance & Crypto', 'Fitness & Health', 'Travel', 'Fashion & Beauty', 'Entertainment & Movies', 'Food & Dining', 'Automotive', 'Music'].map((item) => {
-                              const isSelected = profileInterests.includes(item);
-                              return (
-                                <button
-                                  key={item}
-                                  type="button"
-                                  onClick={() => toggleInterest(item)}
-                                  className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg border transition-all cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-[#FFD043] text-slate-950 border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]'
-                                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
-                                  }`}
-                                >
-                                  {item} {isSelected && '✓'}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Save Changes Button */}
-                      <button
-                        onClick={handleSaveSurveyProfile}
-                        className="mt-3 w-full font-black text-xs py-3 rounded-xl border-3 border-slate-900 bg-[#00D09E] hover:bg-emerald-400 text-slate-950 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        <Save className="w-4 h-4 stroke-[2.5px]" />
-                        <span>
-                          {stats.surveyProfile?.completedOnce
-                            ? 'Save Profile Changes'
-                            : 'Save Profile & Claim +500 SP Reward'}
-                        </span>
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -1713,7 +1539,11 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                   <div className="w-full bg-slate-50 border border-slate-900 rounded-xl p-2 text-left">
                     <div className="flex justify-between items-center text-[9px] font-black text-slate-700 mb-0.5">
                       <span>YOUR REFERRAL CODE</span>
-                      <span className="text-[#A855F7] font-mono">{stats.myReferralCode || ('SLAP-' + stats.coins)}</span>
+                      <span className="text-[#A855F7] font-mono font-bold">{userRefCode}</span>
+                    </div>
+
+                    <div className="text-[9px] font-semibold text-purple-900 font-mono truncate mb-1 bg-purple-50 p-1 rounded border border-purple-200 select-all">
+                      {userRefLink}
                     </div>
 
                     <button

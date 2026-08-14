@@ -2,18 +2,13 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ResponsiveContainer,
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
-  PieChart,
-  Pie,
-  Cell
+  Legend
 } from 'recharts';
 import {
   Home,
@@ -22,7 +17,6 @@ import {
   Gamepad2,
   Gift,
   Megaphone,
-  TrendingUp,
   ShieldAlert,
   FileText,
   Settings,
@@ -61,9 +55,11 @@ import {
   X,
   LogOut,
   Check,
-  AlertCircle
+  AlertCircle,
+  Trophy
 } from 'lucide-react';
 import { UserStats, Transaction } from '../types';
+import { getISOWeekIdentifier, getCurrentMonthIdentifier } from '../lib/leaderboardUtils';
 import { sound } from '../utils/sound';
 import { 
   publishAnnouncementToFirestore, 
@@ -93,8 +89,7 @@ type AdminTab =
   | 'withdrawals'
   | 'game'
   | 'rewards'
-  | 'ads'
-  | 'revenue'
+  | 'leaderboards'
   | 'fraud'
   | 'content'
   | 'settings';
@@ -107,6 +102,8 @@ interface MockUser {
   joinDate: string;
   level: number;
   spBalance: number;
+  weeklySP?: number;
+  qualifiedReferralsCount?: number;
   xp: number;
   referrals: number;
   status: 'Active' | 'Suspicious' | 'Frozen' | 'Restricted';
@@ -314,27 +311,7 @@ const INITIAL_SECURITY_LOGS = [
   }
 ];
 
-const EARNINGS_TREND_DATA = [
-  { name: 'Mon', Adsterra: 380, MyBid: 290, MyLead: 420, Total: 1090 },
-  { name: 'Tue', Adsterra: 420, MyBid: 310, MyLead: 490, Total: 1220 },
-  { name: 'Wed', Adsterra: 390, MyBid: 340, MyLead: 460, Total: 1190 },
-  { name: 'Thu', Adsterra: 480, MyBid: 390, MyLead: 540, Total: 1410 },
-  { name: 'Fri', Adsterra: 540, MyBid: 420, MyLead: 610, Total: 1570 },
-  { name: 'Sat', Adsterra: 610, MyBid: 480, MyLead: 680, Total: 1770 },
-  { name: 'Sun', Adsterra: 580, MyBid: 450, MyLead: 640, Total: 1670 },
-];
 
-const NETWORK_PERFORMANCE_BAR_DATA = [
-  { name: 'Adsterra', ecpm: 18.5, volume: 12400, gross: 3280, fillRate: 98 },
-  { name: 'MyBid', ecpm: 16.2, volume: 9800, gross: 2450, fillRate: 96 },
-  { name: 'MyLead Offerwall', ecpm: 45.0, volume: 2150, gross: 4120, fillRate: 95 },
-];
-
-const REVENUE_SHARE_PIE_DATA = [
-  { name: 'Adsterra', value: 3280, color: '#f59e0b' },
-  { name: 'MyBid', value: 2450, color: '#38bdf8' },
-  { name: 'MyLead Offerwall', value: 4120, color: '#10b981' },
-];
 
 const USER_ACTIVITY_TREND_DATA = [
   { name: 'Mon', activeUsers: 620, newSignups: 45, spEarnedK: 125 },
@@ -405,6 +382,149 @@ export default function AdminDashboard({
   const [referralSpBonus, setReferralSpBonus] = useState(100);
   const [streakMultiplier, setStreakMultiplier] = useState(1.5);
 
+  // Weekly & Monthly Leaderboard State & Logic
+  const [weeklyLeaderboardHistory, setWeeklyLeaderboardHistory] = useState<any[]>([]);
+  const [isFinalizingWeeklyPrizes, setIsFinalizingWeeklyPrizes] = useState<boolean>(false);
+  const [weeklyPrizesNotice, setWeeklyPrizesNotice] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
+
+  const [monthlyLeaderboardHistory, setMonthlyLeaderboardHistory] = useState<any[]>([]);
+  const [isFinalizingMonthlyPrize, setIsFinalizingMonthlyPrize] = useState<boolean>(false);
+  const [monthlyPrizeNotice, setMonthlyPrizeNotice] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
+
+  const fetchWeeklyLeaderboardHistoryAdmin = async () => {
+    try {
+      const res = await fetch('/api/leaderboard/weekly/history');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.history) {
+          setWeeklyLeaderboardHistory(data.history);
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching weekly leaderboard history in admin:', err);
+    }
+  };
+
+  const fetchMonthlyLeaderboardHistoryAdmin = async () => {
+    try {
+      const res = await fetch('/api/leaderboard/monthly/history');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.history) {
+          setMonthlyLeaderboardHistory(data.history);
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching monthly leaderboard history in admin:', err);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchWeeklyLeaderboardHistoryAdmin();
+    fetchMonthlyLeaderboardHistoryAdmin();
+  }, []);
+
+  const handleFinalizeWeeklyPrizes = async () => {
+    const currentWeekId = getISOWeekIdentifier();
+    
+    // Determine current top 3 users from users array sorted by weeklySP or spBalance
+    const sortedActiveUsers = [...users]
+      .filter((u) => u.status === 'Active' || !u.status)
+      .sort((a, b) => (b.weeklySP || b.spBalance || 0) - (a.weeklySP || a.spBalance || 0));
+
+    const top3Winners = [
+      sortedActiveUsers[0] ? { rank: 1, userId: sortedActiveUsers[0].id || sortedActiveUsers[0].username, username: sortedActiveUsers[0].username, spEarned: sortedActiveUsers[0].weeklySP || sortedActiveUsers[0].spBalance || 0 } : null,
+      sortedActiveUsers[1] ? { rank: 2, userId: sortedActiveUsers[1].id || sortedActiveUsers[1].username, username: sortedActiveUsers[1].username, spEarned: sortedActiveUsers[1].weeklySP || sortedActiveUsers[1].spBalance || 0 } : null,
+      sortedActiveUsers[2] ? { rank: 3, userId: sortedActiveUsers[2].id || sortedActiveUsers[2].username, username: sortedActiveUsers[2].username, spEarned: sortedActiveUsers[2].weeklySP || sortedActiveUsers[2].spBalance || 0 } : null,
+    ].filter(Boolean);
+
+    if (top3Winners.length === 0) {
+      setWeeklyPrizesNotice({ type: 'error', msg: 'No active users found to receive weekly prizes.' });
+      return;
+    }
+
+    setIsFinalizingWeeklyPrizes(true);
+    setWeeklyPrizesNotice(null);
+
+    try {
+      const res = await fetch('/api/leaderboard/weekly/finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weekId: currentWeekId,
+          winners: top3Winners
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setWeeklyPrizesNotice({ type: 'success', msg: data.message });
+        addNotification('Prizes Distributed!', data.message, 'success');
+        fetchWeeklyLeaderboardHistoryAdmin();
+      } else if (data.alreadyPaid) {
+        setWeeklyPrizesNotice({ type: 'info', msg: data.message });
+      } else {
+        setWeeklyPrizesNotice({ type: 'error', msg: data.message || 'Failed to finalize weekly leaderboard prizes.' });
+      }
+    } catch (err: any) {
+      setWeeklyPrizesNotice({ type: 'error', msg: 'Network or server error finalizing weekly leaderboard prizes.' });
+    } finally {
+      setIsFinalizingWeeklyPrizes(false);
+    }
+  };
+
+  const handleFinalizeMonthlyPrize = async () => {
+    const currentMonthId = getCurrentMonthIdentifier();
+    
+    // Sort active users by qualifiedReferralsCount or referrals
+    const sortedReferrers = [...users]
+      .filter((u) => u.status === 'Active' || !u.status)
+      .sort((a, b) => (b.qualifiedReferralsCount || b.referrals || 0) - (a.qualifiedReferralsCount || a.referrals || 0));
+
+    const topUser = sortedReferrers[0];
+    if (!topUser) {
+      setMonthlyPrizeNotice({ type: 'error', msg: 'No eligible user found for monthly referral prize.' });
+      return;
+    }
+
+    const winnerPayload = {
+      userId: topUser.id || topUser.username,
+      username: topUser.username,
+      qualifiedReferrals: topUser.qualifiedReferralsCount || topUser.referrals || 0
+    };
+
+    setIsFinalizingMonthlyPrize(true);
+    setMonthlyPrizeNotice(null);
+
+    try {
+      const res = await fetch('/api/leaderboard/monthly/finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monthId: currentMonthId,
+          winner: winnerPayload
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setMonthlyPrizeNotice({ type: 'success', msg: data.message });
+        addNotification('Monthly Prize Awarded!', data.message, 'success');
+        fetchMonthlyLeaderboardHistoryAdmin();
+      } else if (data.alreadyPaid) {
+        setMonthlyPrizeNotice({ type: 'info', msg: data.message });
+      } else {
+        setMonthlyPrizeNotice({ type: 'error', msg: data.message || 'Failed to finalize monthly referral prize.' });
+      }
+    } catch (err: any) {
+      setMonthlyPrizeNotice({ type: 'error', msg: 'Network or server error finalizing monthly referral prize.' });
+    } finally {
+      setIsFinalizingMonthlyPrize(false);
+    }
+  };
+
   // Game Characters & Hands State
   const [characterTab, setCharacterTab] = useState<'moles' | 'slap'>('moles');
   
@@ -427,65 +547,7 @@ export default function AdminDashboard({
   const [doubleSpEventActive, setDoubleSpEventActive] = useState(false);
   const [rareSpawnBoostActive, setRareSpawnBoostActive] = useState(true);
 
-  // Revenue & Profit Calculator
-  const [trendTimeframe, setTrendTimeframe] = useState<'30d' | '7d' | 'today' | 'all'>('30d');
-  const [partnerFilter, setPartnerFilter] = useState<string>('All');
-  const [calcRevenue, setCalcRevenue] = useState(1250);
-  const [calcRewards, setCalcRewards] = useState(480);
 
-  const PARTNER_NETWORKS = [
-    {
-      id: 'adsterra',
-      name: 'Adsterra',
-      type: 'Popunder, Direct Links & Banners',
-      colorBg: 'bg-amber-500',
-      colorText: 'text-amber-400',
-      colorBorder: 'border-amber-500/40',
-      badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-      baseGross: 3280.00,
-      baseSharePct: 33,
-      ecpm: '$18.50',
-      baseVolume: 12400,
-      unit: 'Ad Impressions',
-      fillRate: '98%',
-      status: 'Active',
-      description: 'Premium ad network delivering popunder ads, native banners & direct monetization.'
-    },
-    {
-      id: 'mybid',
-      name: 'MyBid',
-      type: 'Push, In-Page & Video Interstitials',
-      colorBg: 'bg-sky-500',
-      colorText: 'text-sky-400',
-      colorBorder: 'border-sky-500/40',
-      badgeBg: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
-      baseGross: 2450.00,
-      baseSharePct: 25,
-      ecpm: '$16.20',
-      baseVolume: 9800,
-      unit: 'Commercial Views',
-      fillRate: '96%',
-      status: 'Active',
-      description: 'High eCPM ad network specializing in push notifications, video ads & interstitial overlays.'
-    },
-    {
-      id: 'mylead',
-      name: 'MyLead Offerwall',
-      type: 'Exclusive Offerwall & Task Portal',
-      colorBg: 'bg-emerald-500',
-      colorText: 'text-emerald-400',
-      colorBorder: 'border-emerald-500/40',
-      badgeBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-      baseGross: 4120.00,
-      baseSharePct: 42,
-      ecpm: '$45.00',
-      baseVolume: 2150,
-      unit: 'Offer Completions',
-      fillRate: '95%',
-      status: 'Active',
-      description: 'Sole official offerwall network supplying app installs, game milestones & high-payout tasks.'
-    }
-  ];
 
   // Content Management State
   const [maintenanceMode, setMaintenanceMode] = useState(false);
@@ -1010,27 +1072,15 @@ export default function AdminDashboard({
             </button>
 
             <button
-              onClick={() => setActiveTab('ads')}
-              title="Ads & Offers"
+              onClick={() => setActiveTab('leaderboards')}
+              title="Leaderboard Winners & Rewards"
               className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'ads'
-                  ? 'bg-[#FF3B77] text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                activeTab === 'leaderboards'
+                  ? 'bg-amber-400 text-slate-950 shadow-md font-black'
+                  : 'text-amber-400/80 hover:text-amber-300 hover:bg-slate-800/60'
               }`}
             >
-              <Megaphone className="w-5 h-5" />
-            </button>
-
-            <button
-              onClick={() => setActiveTab('revenue')}
-              title="Revenue"
-              className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'revenue'
-                  ? 'bg-[#FF3B77] text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <TrendingUp className="w-5 h-5" />
+              <Trophy className="w-5 h-5" />
             </button>
 
             <button
@@ -1042,6 +1092,7 @@ export default function AdminDashboard({
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
+
               <ShieldAlert className="w-5 h-5" />
               <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
             </button>
@@ -2590,6 +2641,200 @@ export default function AdminDashboard({
                 </div>
               </div>
 
+              {/* SECTION: WEEKLY LEADERBOARD REWARDS CONTROL */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-amber-400" />
+                      <span>Weekly Leaderboard Prizes Control ({getISOWeekIdentifier()})</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-medium mt-1">
+                      Total Weekly Pool: <strong className="text-amber-300 font-mono">4,500 SP</strong> (🥇 1st: 2,000 SP • 🥈 2nd: 1,500 SP • 🥉 3rd: 1,000 SP). #4+ receive 0 SP.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleFinalizeWeeklyPrizes}
+                    disabled={isFinalizingWeeklyPrizes}
+                    className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl flex items-center gap-2 cursor-pointer shadow-lg shrink-0 transition-all disabled:opacity-50"
+                  >
+                    <Trophy className="w-4 h-4" />
+                    <span>{isFinalizingWeeklyPrizes ? 'Processing Distribution...' : 'Finalize & Distribute Weekly Prizes'}</span>
+                  </button>
+                </div>
+
+                {weeklyPrizesNotice && (
+                  <div className={`p-3 rounded-xl border text-xs font-bold ${
+                    weeklyPrizesNotice.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' :
+                    weeklyPrizesNotice.type === 'info' ? 'bg-sky-500/10 border-sky-500/30 text-sky-300' :
+                    'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  }`}>
+                    {weeklyPrizesNotice.msg}
+                  </div>
+                )}
+
+                {/* Top 3 Standings Preview */}
+                <div className="space-y-2">
+                  <div className="text-[10px] text-slate-400 font-black uppercase tracking-wider">
+                    Current Period Standings Preview (Top 3 Players)
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    {(() => {
+                      const sortedActive = [...users]
+                        .filter(u => u.status === 'Active' || !u.status)
+                        .sort((a, b) => (b.spBalance || 0) - (a.spBalance || 0));
+                      const prizes = [
+                        { medal: '🥇', rank: '1st Place', prize: '2,000 SP', border: 'border-amber-400/40' },
+                        { medal: '🥈', rank: '2nd Place', prize: '1,500 SP', border: 'border-slate-400/30' },
+                        { medal: '🥉', rank: '3rd Place', prize: '1,000 SP', border: 'border-amber-700/40' }
+                      ];
+
+                      return [0, 1, 2].map((i) => {
+                        const user = sortedActive[i];
+                        const p = prizes[i];
+                        return (
+                          <div key={i} className={`bg-slate-950 p-3 rounded-xl border ${p.border} flex items-center justify-between`}>
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-xl">{p.medal}</span>
+                              <div>
+                                <div className="text-xs font-black text-white">{user ? user.username : 'No Eligible Player'}</div>
+                                <div className="text-[9px] text-slate-400 font-bold">{p.rank} • Balance: {user ? user.spBalance.toLocaleString() : 0} SP</div>
+                              </div>
+                            </div>
+                            <span className="text-xs font-black text-amber-300 font-mono">{p.prize}</span>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                {/* Historical Distribution Log Table */}
+                <div className="space-y-2 pt-2">
+                  <div className="text-[10px] text-slate-400 font-black uppercase tracking-wider flex items-center justify-between">
+                    <span>Audit Log: Finalized Weekly Payouts History</span>
+                    <span className="text-slate-500 font-mono text-[9px]">{weeklyLeaderboardHistory.length} Week Records</span>
+                  </div>
+
+                  {weeklyLeaderboardHistory.length === 0 ? (
+                    <div className="text-center py-6 bg-slate-950/50 rounded-xl border border-dashed border-slate-800 text-xs text-slate-500 font-medium">
+                      No finalized weekly leaderboard payouts recorded yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-slate-800">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[9px] border-b border-slate-800">
+                          <tr>
+                            <th className="p-2.5">Week ID</th>
+                            <th className="p-2.5">1st Place (2,000 SP)</th>
+                            <th className="p-2.5">2nd Place (1,500 SP)</th>
+                            <th className="p-2.5">3rd Place (1,000 SP)</th>
+                            <th className="p-2.5">Total Pool</th>
+                            <th className="p-2.5">Finalized At</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 bg-slate-900/60 font-mono">
+                          {weeklyLeaderboardHistory.map((item: any) => (
+                            <tr key={item.weekId} className="hover:bg-slate-800/40">
+                              <td className="p-2.5 text-amber-400 font-bold">{item.weekId}</td>
+                              <td className="p-2.5 text-white">
+                                {item.winners?.find((w: any) => w.rank === 1)?.username || 'N/A'}
+                              </td>
+                              <td className="p-2.5 text-slate-300">
+                                {item.winners?.find((w: any) => w.rank === 2)?.username || 'N/A'}
+                              </td>
+                              <td className="p-2.5 text-slate-400">
+                                {item.winners?.find((w: any) => w.rank === 3)?.username || 'N/A'}
+                              </td>
+                              <td className="p-2.5 text-emerald-400 font-bold">{item.totalPrizeSP || 4500} SP</td>
+                              <td className="p-2.5 text-slate-500 text-[10px]">
+                                {item.finalizedAt ? new Date(item.finalizedAt).toLocaleDateString() : 'Recorded'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* SECTION: MONTHLY REFERRAL LEADERBOARD REWARDS CONTROL */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      <Users className="w-4 h-4 text-emerald-400" />
+                      <span>Monthly Referral Leaderboard Control</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-medium mt-1">
+                      Monthly #1 Top Referrer Reward: <strong className="text-emerald-300 font-mono">2,000 SP</strong> for the user with the most qualified referrals (20+ ads watched).
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleFinalizeMonthlyPrize}
+                    disabled={isFinalizingMonthlyPrize}
+                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl flex items-center gap-2 cursor-pointer shadow-lg shrink-0 transition-all disabled:opacity-50"
+                  >
+                    <Trophy className="w-4 h-4" />
+                    <span>{isFinalizingMonthlyPrize ? 'Awarding Monthly Prize...' : 'Finalize & Award Monthly Top Referrer Prize'}</span>
+                  </button>
+                </div>
+
+                {monthlyPrizeNotice && (
+                  <div className={`p-3 rounded-xl border text-xs font-bold ${
+                    monthlyPrizeNotice.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' :
+                    monthlyPrizeNotice.type === 'info' ? 'bg-sky-500/10 border-sky-500/30 text-sky-300' :
+                    'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  }`}>
+                    {monthlyPrizeNotice.msg}
+                  </div>
+                )}
+
+                {/* Audit Log: Finalized Monthly Referral Payouts */}
+                <div className="space-y-2 pt-2">
+                  <div className="text-[10px] text-slate-400 font-black uppercase tracking-wider flex items-center justify-between">
+                    <span>Audit Log: Finalized Monthly Referral Payouts History</span>
+                    <span className="text-slate-500 font-mono text-[9px]">{monthlyLeaderboardHistory.length} Month Records</span>
+                  </div>
+
+                  {monthlyLeaderboardHistory.length === 0 ? (
+                    <div className="text-center py-6 bg-slate-950/50 rounded-xl border border-dashed border-slate-800 text-xs text-slate-500 font-medium">
+                      No finalized monthly referral payouts recorded yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-slate-800">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[9px] border-b border-slate-800">
+                          <tr>
+                            <th className="p-2.5">Month ID</th>
+                            <th className="p-2.5">Top Referrer Winner</th>
+                            <th className="p-2.5">Qualified Referrals</th>
+                            <th className="p-2.5">Prize Awarded</th>
+                            <th className="p-2.5">Finalized At</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 bg-slate-900/60 font-mono">
+                          {monthlyLeaderboardHistory.map((item: any) => (
+                            <tr key={item.monthId} className="hover:bg-slate-800/40">
+                              <td className="p-2.5 text-emerald-400 font-bold">{item.monthId}</td>
+                              <td className="p-2.5 text-white font-bold">@{item.winner?.username || item.winner?.userId || 'N/A'}</td>
+                              <td className="p-2.5 text-slate-300">{item.winner?.qualifiedReferrals || 0} users</td>
+                              <td className="p-2.5 text-amber-300 font-bold">{item.winner?.prizeSP || 2000} SP</td>
+                              <td className="p-2.5 text-slate-500 text-[10px]">
+                                {item.finalizedAt ? new Date(item.finalizedAt).toLocaleDateString() : 'Recorded'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* BOTTOM SAVE BUTTON */}
               <div className="pt-2">
                 <button
@@ -2604,355 +2849,350 @@ export default function AdminDashboard({
             </div>
           )}
 
-          {/* TAB 6: ADS & OFFERS MANAGEMENT */}
-          {activeTab === 'ads' && (
-            <div className="space-y-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                  <div>
-                    <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                      <Megaphone className="w-4 h-4 text-sky-400" />
-                      <span>Ad Networks & Offerwall Partners</span>
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Configure active SDK integrations, postback webhooks & eCPM targets for monetize partners.
-                    </p>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-xl self-start sm:self-auto">
-                    3 Core Networks Operational
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
-                  {[
-                    { 
-                      name: 'Adsterra', 
-                      type: 'Popunder, Direct Links & Banners', 
-                      ecpm: '$18.50', 
-                      status: 'Active', 
-                      fillRate: '98%',
-                      payoutShare: '100% App Direct',
-                      postbackStatus: 'Auto-Postback Live',
-                      badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                    },
-                    { 
-                      name: 'MyBid', 
-                      type: 'Push, Video Interstitials & In-Page', 
-                      ecpm: '$16.20', 
-                      status: 'Active', 
-                      fillRate: '96%',
-                      payoutShare: '100% App Direct',
-                      postbackStatus: 'Connected & Verified',
-                      badgeBg: 'bg-sky-500/20 text-sky-300 border-sky-500/30'
-                    },
-                    { 
-                      name: 'MyLead Offerwall', 
-                      type: 'Exclusive Task & App Install Wall', 
-                      ecpm: '$45.00', 
-                      status: 'Active', 
-                      fillRate: '95%',
-                      payoutShare: '80% User / 20% App',
-                      postbackStatus: 'Webhook Verified',
-                      badgeBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    }
-                  ].map((ad, idx) => (
-                    <div key={idx} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3 hover:border-slate-700 transition-all">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-white text-sm">{ad.name}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase border ${ad.badgeBg}`}>
-                              {ad.status}
-                            </span>
-                          </div>
-                          <span className="text-[11px] text-slate-400 font-medium block mt-0.5">{ad.type}</span>
-                        </div>
-                        <span className="text-[10px] font-mono text-emerald-400 bg-slate-900 border border-slate-800 px-2 py-1 rounded-lg">
-                          {ad.postbackStatus}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800/60 text-[10px] font-mono">
-                        <div>
-                          <span className="text-slate-400 text-[9px] block">eCPM Avg</span>
-                          <span className="font-black text-emerald-400">{ad.ecpm}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[9px] block">Fill Rate</span>
-                          <span className="font-black text-sky-400">{ad.fillRate}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[9px] block">Payout Split</span>
-                          <span className="font-bold text-slate-200">{ad.payoutShare}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-900">
-                        <span>API Status: <strong className="text-emerald-400 font-mono">200 OK</strong></span>
-                        <span className="text-[#00D09E] font-bold hover:underline cursor-pointer">Configure Settings →</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 7: REVENUE & ANALYTICS */}
-          {activeTab === 'revenue' && (
-            <div className="space-y-5">
-              {/* Top Summary Banner */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          {/* TAB: LEADERBOARD WINNERS & REWARDS CONTROL */}
+          {activeTab === 'leaderboards' && (
+            <div className="space-y-6">
+              {/* HEADER BANNER */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h2 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-[#00D09E]" />
-                    <span>Revenue & Partner Network Analytics</span>
+                  <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-amber-400" />
+                    <span>SlapEarn Leaderboard Winners & Award Records</span>
                   </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Real-time performance tracking for Adsterra, MyBid, and MyLead Offerwall.
+                  <p className="text-[11px] text-slate-400 font-semibold mt-1">
+                    Winners are automatically evaluated and awarded by the server. View all weekly & monthly winners below.
                   </p>
                 </div>
-
-                <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 text-xs font-extrabold">
-                  {(['today', '7d', '30d', 'all'] as const).map((tf) => (
-                    <button
-                      key={tf}
-                      onClick={() => setTrendTimeframe(tf)}
-                      className={`px-3 py-1 rounded-lg uppercase transition-all cursor-pointer ${
-                        trendTimeframe === tf 
-                          ? 'bg-[#00D09E] text-slate-950 font-black shadow-md' 
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {tf}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* RECHARTS CHART 1: EARNINGS TRENDS OVER TIME */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                  <div>
-                    <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                      <BarChart3 className="w-4 h-4 text-emerald-400" />
-                      <span>Earnings Trends (Adsterra, MyBid, MyLead Offerwall)</span>
-                    </h3>
-                    <span className="text-[11px] text-slate-400">Daily revenue generated per monetization network ($ USD)</span>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/30 self-start sm:self-auto">
-                    +$9,850 Gross Est.
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Server Auto-Award: ACTIVE
                   </span>
-                </div>
-
-                <div className="h-72 w-full pt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={EARNINGS_TREND_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorAdsterra" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1}/>
-                        </linearGradient>
-                        <linearGradient id="colorMyBid" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.1}/>
-                        </linearGradient>
-                        <linearGradient id="colorMyLead" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                      <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                      <YAxis stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(val) => `$${val}`} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
-                        formatter={(value: any) => [`$${value}`, undefined]}
-                      />
-                      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-                      <Area type="monotone" dataKey="Adsterra" stackId="1" stroke="#f59e0b" fillOpacity={1} fill="url(#colorAdsterra)" />
-                      <Area type="monotone" dataKey="MyBid" stackId="1" stroke="#38bdf8" fillOpacity={1} fill="url(#colorMyBid)" />
-                      <Area type="monotone" dataKey="MyLead" name="MyLead Offerwall" stackId="1" stroke="#10b981" fillOpacity={1} fill="url(#colorMyLead)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                  <button
+                    onClick={() => {
+                      fetchWeeklyLeaderboardHistoryAdmin();
+                      fetchMonthlyLeaderboardHistoryAdmin();
+                      addNotification('Leaderboards Synced', 'Refreshed auto-awarded weekly and monthly winner records.', 'info');
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Sync Winners Now</span>
+                  </button>
                 </div>
               </div>
 
-              {/* RECHARTS CHART 2 & 3: NETWORK PERFORMANCE & REVENUE SHARE PIE */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Bar Chart: eCPM and Volume Comparison */}
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 lg:col-span-2">
-                  <div className="border-b border-slate-800 pb-2 flex justify-between items-center">
-                    <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-amber-400" />
-                      <span>Network Performance Metrics (eCPM vs Gross Revenue)</span>
+              {/* SECTION 1: WEEKLY SP LEADERBOARD WINNERS */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-amber-400" />
+                      <span>Weekly Leaderboard Winners History</span>
                     </h3>
-                    <span className="text-[10px] text-slate-400 font-mono">Normalized USD Yield</span>
+                    <p className="text-[11px] text-slate-400 font-medium mt-1">
+                      Cycle: Thursday 23:59:59 UTC • Auto-Prizes: 🥇 1st: 2,000 SP • 🥈 2nd: 1,500 SP • 🥉 3rd: 1,000 SP
+                    </p>
                   </div>
 
-                  <div className="h-64 w-full pt-1">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={NETWORK_PERFORMANCE_BAR_DATA} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                        <YAxis stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(val) => `$${val}`} />
-                        <Tooltip 
-                          contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
-                          formatter={(value: any, name: any) => [name === 'ecpm' ? `$${value} eCPM` : `$${value}`, name === 'ecpm' ? 'eCPM' : 'Gross Revenue']}
-                        />
-                        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }} />
-                        <Bar dataKey="gross" name="Gross Revenue ($)" fill="#00D09E" radius={[6, 6, 0, 0]} />
-                        <Bar dataKey="ecpm" name="Est. eCPM ($)" fill="#FFD043" radius={[6, 6, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <button
+                    onClick={handleFinalizeWeeklyPrizes}
+                    disabled={isFinalizingWeeklyPrizes}
+                    className="px-3.5 py-1.5 bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 border border-amber-400/30 font-bold text-xs uppercase tracking-wider rounded-xl flex items-center gap-1.5 cursor-pointer shadow-sm shrink-0 transition-all disabled:opacity-50"
+                  >
+                    <Trophy className="w-3.5 h-3.5" />
+                    <span>{isFinalizingWeeklyPrizes ? 'Evaluating...' : 'Force Auto-Check Week'}</span>
+                  </button>
                 </div>
 
-                {/* Pie Chart: Revenue Share Distribution */}
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 flex flex-col justify-between">
-                  <div className="border-b border-slate-800 pb-2">
-                    <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                      <BarChart3 className="w-4 h-4 text-sky-400" />
-                      <span>Revenue Share Split</span>
-                    </h3>
-                    <span className="text-[10px] text-slate-400">% Contribution per Network</span>
+                {weeklyPrizesNotice && (
+                  <div className={`p-3 rounded-xl border text-xs font-bold ${
+                    weeklyPrizesNotice.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' :
+                    weeklyPrizesNotice.type === 'info' ? 'bg-sky-500/10 border-sky-500/30 text-sky-300' :
+                    'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  }`}>
+                    {weeklyPrizesNotice.msg}
+                  </div>
+                )}
+
+                {/* Weekly Winners History Table */}
+                <div className="space-y-2">
+                  <div className="text-[10px] text-slate-400 font-black uppercase tracking-wider flex items-center justify-between">
+                    <span>Finalized Weekly Winners Log</span>
+                    <span className="text-amber-400 font-mono text-[9px]">{weeklyLeaderboardHistory.length} Weeks Auto-Awarded</span>
                   </div>
 
-                  <div className="h-48 w-full relative flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={REVENUE_SHARE_PIE_DATA}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={45}
-                          outerRadius={70}
-                          paddingAngle={4}
-                          dataKey="value"
-                        >
-                          {REVENUE_SHARE_PIE_DATA.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
+                  {weeklyLeaderboardHistory.length === 0 ? (
+                    <div className="text-center py-6 bg-slate-950/50 rounded-xl border border-dashed border-slate-800 text-xs text-slate-500 font-medium">
+                      No finalized weekly leaderboard payouts recorded yet. The server will auto-award top 3 users at cycle end.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[9px] border-b border-slate-800">
+                          <tr>
+                            <th className="p-2.5">Week ID</th>
+                            <th className="p-2.5">🥇 1st Place (2,000 SP)</th>
+                            <th className="p-2.5">🥈 2nd Place (1,500 SP)</th>
+                            <th className="p-2.5">🥉 3rd Place (1,000 SP)</th>
+                            <th className="p-2.5">Total Prize Pool</th>
+                            <th className="p-2.5">Status</th>
+                            <th className="p-2.5">Awarded Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 font-mono">
+                          {weeklyLeaderboardHistory.map((item: any) => {
+                            const w1 = item.winners?.find((w: any) => w.rank === 1);
+                            const w2 = item.winners?.find((w: any) => w.rank === 2);
+                            const w3 = item.winners?.find((w: any) => w.rank === 3);
+
+                            return (
+                              <tr key={item.weekId} className="hover:bg-slate-800/40">
+                                <td className="p-2.5 text-amber-400 font-bold">{item.weekId}</td>
+                                <td className="p-2.5 font-sans font-bold text-amber-300">
+                                  {w1 ? `@${w1.username || w1.userId}` : '—'}
+                                </td>
+                                <td className="p-2.5 font-sans font-bold text-slate-200">
+                                  {w2 ? `@${w2.username || w2.userId}` : '—'}
+                                </td>
+                                <td className="p-2.5 font-sans font-bold text-amber-600">
+                                  {w3 ? `@${w3.username || w3.userId}` : '—'}
+                                </td>
+                                <td className="p-2.5 text-emerald-400 font-bold">{item.totalPrizeSP || 4500} SP</td>
+                                <td className="p-2.5">
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                                    Auto-Paid
+                                  </span>
+                                </td>
+                                <td className="p-2.5 text-slate-500 text-[10px]">
+                                  {item.finalizedAt ? new Date(item.finalizedAt).toLocaleDateString() : 'Recorded'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Current Live Top Weekly Candidates */}
+                <div className="space-y-2 pt-2">
+                  <div className="text-[10px] text-slate-400 font-black uppercase tracking-wider flex items-center justify-between">
+                    <span>Current Active Week Live Leaders (Projected Winners)</span>
+                    <span className="text-slate-500 font-mono text-[9px]">Live Rankings</span>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[9px] border-b border-slate-800">
+                        <tr>
+                          <th className="p-2.5">Rank</th>
+                          <th className="p-2.5">User</th>
+                          <th className="p-2.5">Weekly SP</th>
+                          <th className="p-2.5">Projected Reward</th>
+                          <th className="p-2.5">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 font-mono">
+                        {(() => {
+                          const weeklySorted = [...users]
+                            .filter(u => u.status === 'Active' || !u.status)
+                            .sort((a, b) => (b.coins || b.spBalance || b.weeklySP || 0) - (a.coins || a.spBalance || a.weeklySP || 0))
+                            .slice(0, 5);
+
+                          if (weeklySorted.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={5} className="p-4 text-center text-slate-500">No active users in current week standings yet.</td>
+                              </tr>
+                            );
+                          }
+
+                          return weeklySorted.map((u, idx) => {
+                            const rank = idx + 1;
+                            const medal = rank === 1 ? '🥇 ' : rank === 2 ? '🥈 ' : rank === 3 ? '🥉 ' : `#${rank} `;
+                            const reward = rank === 1 ? '2,000 SP' : rank === 2 ? '1,500 SP' : rank === 3 ? '1,000 SP' : '—';
+
+                            return (
+                              <tr key={u.id || idx} className={`hover:bg-slate-800/40 ${rank <= 3 ? 'bg-amber-500/5' : ''}`}>
+                                <td className="p-2.5 font-bold text-white">
+                                  <span className={rank === 1 ? 'text-amber-300 font-black' : rank === 2 ? 'text-slate-200 font-bold' : rank === 3 ? 'text-amber-600 font-bold' : 'text-slate-400'}>
+                                    {medal}
+                                  </span>
+                                </td>
+                                <td className="p-2.5 font-sans font-bold text-white">
+                                  @{u.username}
+                                </td>
+                                <td className="p-2.5 text-amber-300 font-bold">
+                                  {(u.coins || u.spBalance || u.weeklySP || 0).toLocaleString()} SP
+                                </td>
+                                <td className="p-2.5 text-emerald-400 font-bold">
+                                  {reward}
+                                </td>
+                                <td className="p-2.5">
+                                  <span className="text-[9px] bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full">
+                                    {rank <= 3 ? 'Projected Winner' : 'In Contention'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 2: MONTHLY REFERRALS LEADERBOARD WINNERS */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      <Users className="w-4 h-4 text-emerald-400" />
+                      <span>Monthly Referral Leaderboard Winners History</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-medium mt-1">
+                      Auto-Prize: <strong className="text-emerald-300 font-mono">2,000 SP</strong> for #1 Top Referrer with most qualified referrals (20+ ads watched)
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleFinalizeMonthlyPrize}
+                    disabled={isFinalizingMonthlyPrize}
+                    className="px-3.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs uppercase tracking-wider rounded-xl flex items-center gap-1.5 cursor-pointer shadow-sm shrink-0 transition-all disabled:opacity-50"
+                  >
+                    <Trophy className="w-3.5 h-3.5" />
+                    <span>{isFinalizingMonthlyPrize ? 'Evaluating...' : 'Force Auto-Check Month'}</span>
+                  </button>
+                </div>
+
+                {monthlyPrizeNotice && (
+                  <div className={`p-3 rounded-xl border text-xs font-bold ${
+                    monthlyPrizeNotice.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' :
+                    monthlyPrizeNotice.type === 'info' ? 'bg-sky-500/10 border-sky-500/30 text-sky-300' :
+                    'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  }`}>
+                    {monthlyPrizeNotice.msg}
+                  </div>
+                )}
+
+                {/* Monthly Winners History Table */}
+                <div className="space-y-2">
+                  <div className="text-[10px] text-slate-400 font-black uppercase tracking-wider flex items-center justify-between">
+                    <span>Finalized Monthly Top Referrer Winners Log</span>
+                    <span className="text-emerald-400 font-mono text-[9px]">{monthlyLeaderboardHistory.length} Months Auto-Awarded</span>
+                  </div>
+
+                  {monthlyLeaderboardHistory.length === 0 ? (
+                    <div className="text-center py-6 bg-slate-950/50 rounded-xl border border-dashed border-slate-800 text-xs text-slate-500 font-medium">
+                      No finalized monthly referral payouts recorded yet. The server will auto-award the #1 referrer at month end.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[9px] border-b border-slate-800">
+                          <tr>
+                            <th className="p-2.5">Month ID</th>
+                            <th className="p-2.5">🥇 #1 Top Referrer Winner</th>
+                            <th className="p-2.5">Qualified Referrals</th>
+                            <th className="p-2.5">Prize Awarded</th>
+                            <th className="p-2.5">Status</th>
+                            <th className="p-2.5">Awarded Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 font-mono">
+                          {monthlyLeaderboardHistory.map((item: any) => (
+                            <tr key={item.monthId} className="hover:bg-slate-800/40">
+                              <td className="p-2.5 text-emerald-400 font-bold">{item.monthId}</td>
+                              <td className="p-2.5 font-sans font-bold text-white">@{item.winner?.username || item.winner?.userId || 'N/A'}</td>
+                              <td className="p-2.5 text-slate-300">{item.winner?.qualifiedReferrals || 0} qualified users</td>
+                              <td className="p-2.5 text-amber-300 font-bold">{item.winner?.prizeSP || 2000} SP</td>
+                              <td className="p-2.5">
+                                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                                  Auto-Paid
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-slate-500 text-[10px]">
+                                {item.finalizedAt ? new Date(item.finalizedAt).toLocaleDateString() : 'Recorded'}
+                              </td>
+                            </tr>
                           ))}
-                        </Pie>
-                        <Tooltip 
-                          contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
-                          formatter={(val: any) => [`$${val}`, 'Gross Share']}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className="text-xs font-black text-white font-mono">$6,370</span>
-                      <span className="text-[9px] text-slate-400 font-bold uppercase">Total</span>
+                        </tbody>
+                      </table>
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono pt-1">
-                    {REVENUE_SHARE_PIE_DATA.map((item) => (
-                      <div key={item.name} className="flex items-center gap-1.5 bg-slate-950 p-1.5 rounded-lg border border-slate-800">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                        <span className="text-slate-300 font-sans truncate">{item.name}</span>
-                        <span className="ml-auto font-bold text-white">${item.value}</span>
-                      </div>
-                    ))}
-                  </div>
+                  )}
                 </div>
-              </div>
 
-              {/* Partner Network Cards Detailed Grid */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-                <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
-                  <Megaphone className="w-4 h-4 text-sky-400" />
-                  <span>Network Operational Cards (Adsterra, MyBid, MyLead Offerwall)</span>
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {PARTNER_NETWORKS.map((partner) => {
-                    const mult = trendTimeframe === 'today' ? 0.08 : trendTimeframe === '7d' ? 0.28 : trendTimeframe === '30d' ? 1 : 2.4;
-                    const partnerRev = partner.baseGross * mult;
-
-                    return (
-                      <div 
-                        key={partner.id}
-                        className={`p-3.5 rounded-2xl border bg-slate-950/80 transition-all ${partner.colorBorder} space-y-2`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`w-2.5 h-2.5 rounded-full ${partner.colorBg}`} />
-                            <span className="font-black text-xs text-white">{partner.name}</span>
-                          </div>
-                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md border ${partner.badgeBg}`}>
-                            {partner.fillRate} Fill
-                          </span>
-                        </div>
-
-                        <div className="flex justify-between items-baseline font-mono text-xs pt-1">
-                          <span className="text-[10px] text-slate-400">Gross:</span>
-                          <span className={`font-black ${partner.colorText}`}>${partnerRev.toFixed(2)}</span>
-                        </div>
-
-                        <div className="flex justify-between items-baseline font-mono text-[10px]">
-                          <span className="text-slate-400">Est. eCPM:</span>
-                          <span className="font-bold text-amber-300">{partner.ecpm}</span>
-                        </div>
-
-                        <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                          <div 
-                            className={`h-full ${partner.colorBg}`}
-                            style={{ width: `${partner.baseSharePct}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* PROFIT CALCULATOR */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-                <h3 className="text-sm font-black text-[#FFD043] uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
-                  <DollarSign className="w-4 h-4" />
-                  <span>Interactive Real-time Profit Calculator</span>
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs items-center">
-                  <div>
-                    <label className="text-[10px] text-slate-400 font-bold block mb-1">Gross Ad/Offer Revenue ($):</label>
-                    <input
-                      type="number"
-                      value={calcRevenue}
-                      onChange={(e) => setCalcRevenue(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-[#00D09E] outline-none"
-                    />
+                {/* Current Active Month Live Leaders */}
+                <div className="space-y-2 pt-2">
+                  <div className="text-[10px] text-slate-400 font-black uppercase tracking-wider flex items-center justify-between">
+                    <span>Current Active Month Live Referral Standings</span>
+                    <span className="text-slate-500 font-mono text-[9px]">Live Rankings</span>
                   </div>
 
-                  <div>
-                    <label className="text-[10px] text-slate-400 font-bold block mb-1">Rewards Paid Out ($):</label>
-                    <input
-                      type="number"
-                      value={calcRewards}
-                      onChange={(e) => setCalcRewards(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-rose-400 outline-none"
-                    />
-                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[9px] border-b border-slate-800">
+                        <tr>
+                          <th className="p-2.5">Rank</th>
+                          <th className="p-2.5">User</th>
+                          <th className="p-2.5">Qualified Referrals (20+ Ads)</th>
+                          <th className="p-2.5">Total Referrals</th>
+                          <th className="p-2.5">Projected Reward</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 font-mono">
+                        {(() => {
+                          const refSorted = [...users]
+                            .filter(u => u.status === 'Active' || !u.status)
+                            .sort((a, b) => (b.qualifiedReferralsCount || b.referrals || 0) - (a.qualifiedReferralsCount || a.referrals || 0))
+                            .slice(0, 5);
 
-                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                    <div>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Net Platform Margin</span>
-                      <span className="font-mono font-black text-emerald-400 text-base">
-                        ${(calcRevenue - calcRewards).toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Margin %</span>
-                      <span className="font-mono font-bold text-amber-300 text-sm">
-                        {calcRevenue > 0 ? (((calcRevenue - calcRewards) / calcRevenue) * 100).toFixed(1) : 0}%
-                      </span>
-                    </div>
+                          if (refSorted.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={5} className="p-4 text-center text-slate-500">No active users in referral standings yet.</td>
+                              </tr>
+                            );
+                          }
+
+                          return refSorted.map((u, idx) => {
+                            const rank = idx + 1;
+                            const medal = rank === 1 ? '🥇 ' : `#${rank} `;
+                            return (
+                              <tr key={u.id || idx} className={`hover:bg-slate-800/40 ${rank === 1 ? 'bg-emerald-500/10' : ''}`}>
+                                <td className="p-2.5 font-bold text-white">
+                                  <span className={rank === 1 ? 'text-emerald-300 font-black' : 'text-slate-400'}>
+                                    {medal}
+                                  </span>
+                                </td>
+                                <td className="p-2.5 font-sans font-bold text-white">
+                                  @{u.username}
+                                </td>
+                                <td className="p-2.5 text-emerald-400 font-bold">
+                                  {u.qualifiedReferralsCount || u.referrals || 0} qualified
+                                </td>
+                                <td className="p-2.5 text-slate-300">
+                                  {u.referrals || 0} total
+                                </td>
+                                <td className="p-2.5 text-amber-300 font-bold">
+                                  {rank === 1 ? '2,000 SP (#1 Winner)' : '—'}
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
             </div>
           )}
+
+
 
           {/* TAB 8: FRAUD & SECURITY CENTER */}
           {activeTab === 'fraud' && (

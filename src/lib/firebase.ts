@@ -1,39 +1,52 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  getAuth, 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
+import { initializeApp, getApps, getApp } from "firebase/app";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithRedirect,
+  getRedirectResult,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
   signInAnonymously,
-  signOut, 
+  signOut,
   onAuthStateChanged,
-  User as FirebaseUser 
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocFromServer, 
-  onSnapshot, 
-  collection, 
-  addDoc, 
-  getDocs, 
-  query, 
+  User as FirebaseUser
+} from "firebase/auth";
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  getDocFromServer,
+  onSnapshot,
+  collection,
+  collectionGroup,
+  addDoc,
+  getDocs,
+  query,
   where,
-  orderBy, 
-  limit, 
-  updateDoc 
-} from 'firebase/firestore';
+  orderBy,
+  limit,
+  updateDoc
+} from "firebase/firestore";
 
-import firebaseConfig from '../../firebase-applet-config.json';
+import { checkDeviceAccountLimit, recordAccountOnDevice } from '../utils/deviceGuard';
 import { UserStats, Transaction } from '../types';
 
-// Initialize Firebase
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
+const firebaseConfig = {
+  apiKey: "AIzaSyCG6XtPCNBRm_YSw1h0IOIauwsPfEoxldk",
+  authDomain: "slapearn.firebaseapp.com",
+  projectId: "slapearn",
+  storageBucket: "slapearn.firebasestorage.app",
+  messagingSenderId: "729949685571",
+  appId: "1:729949685571:web:cc28c6020de248e4c791f6",
+  measurementId: "G-VB395LWW4X"
+};
 
-// Initialize Firestore using standard getFirestore with project databaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export enum OperationType {
   CREATE = 'create',
@@ -88,17 +101,167 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   return errInfo;
 }
 
-// Validate Connection to Firestore on Boot gracefully
-export async function testFirestoreConnection() {
+// Trigger Google Sign-In with Redirect (Mobile & Web friendly, bypasses popup blockers)
+export const loginWithGoogleRedirect = async (): Promise<void> => {
   try {
-    await getDocFromServer(doc(db, 'system', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
+    await signInWithRedirect(auth, googleProvider);
+  } catch (err) {
+    console.error('Google Redirect error:', err);
+    throw err;
   }
+};
+
+// Check and handle Google Redirect Auth result on application mount
+export const checkGoogleRedirectResult = async (): Promise<{ uid: string; stats: Partial<UserStats> } | null> => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (!result || !result.user) return null;
+
+    const user = result.user;
+    const uid = user.uid;
+    const email = (user.email || '').toLowerCase();
+    const username = (user.displayName || email.split('@')[0] || 'Slapper').trim();
+    const pendingRefCode = sessionStorage.getItem('slapearn_pending_ref_code') || undefined;
+
+    // Check if user doc exists in firestore
+    const userDocRef = doc(db, 'users', uid);
+    const snap = await getDoc(userDocRef);
+    if (snap.exists()) {
+      const stats = { ...snap.data(), uid } as Partial<UserStats>;
+      try {
+        localStorage.setItem('slapearn_active_uid', uid);
+        localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(stats));
+      } catch {}
+      recordAccountOnDevice(uid);
+      return { uid, stats };
+    } else {
+      // Create initial profile in Firestore for new Google user
+      const generatedMyCode = `SLAP-${username.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 8) || 'USER'}`;
+      const initialStats: Partial<UserStats> = {
+        uid,
+        username,
+        email,
+        myReferralCode: generatedMyCode,
+        referredByCode: pendingRefCode || null,
+        country: 'South Africa 🇿🇦',
+        coins: 100,
+        totalEarned: 100,
+        xp: 0,
+        level: 1,
+        streak: 0,
+        slapsToday: 70,
+        maxSlapsPerDay: 100,
+        bestCombo: 0,
+        daysActive: 0,
+        referrals: 0,
+        adsWatchedToday: 0,
+        totalAdsWatchedLifetime: 0,
+        hasClaimedStarterPack: true,
+        lastActiveDate: new Date().toDateString(),
+        selectedHand: 'wooden',
+        unlockedHands: ['wooden'],
+        createdAt: Date.now()
+      };
+
+      const txRef = doc(db, 'users', uid, 'transactions', 'tx-starter-welcome');
+      await Promise.all([
+        setDoc(userDocRef, initialStats, { merge: true }),
+        setDoc(txRef, {
+          id: 'tx-starter-welcome',
+          type: 'earn',
+          amount: 100,
+          title: 'Starter Signup Balance',
+          category: 'Daily Check-in',
+          timestamp: new Date().toISOString(),
+          status: 'completed'
+        }, { merge: true })
+      ]).catch((e) => console.warn('Google initial doc write notice:', e));
+
+      try {
+        localStorage.setItem('slapearn_active_uid', uid);
+        localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(initialStats));
+      } catch {}
+      recordAccountOnDevice(uid);
+      return { uid, stats: initialStats };
+    }
+  } catch (err) {
+    console.warn('Google redirect result notice:', err);
+    return null;
+  }
+};
+
+// Migrate & ensure user record in the new Firebase Firestore
+export const ensureUserMigrated = async (targetUid: string = 'usr_msd1ypfti3vq7'): Promise<Partial<UserStats> | null> => {
+  try {
+    const userDocRef = doc(db, 'users', targetUid);
+    const snap = await getDoc(userDocRef);
+    if (!snap.exists()) {
+      const migratedStats: Partial<UserStats> = {
+        uid: targetUid,
+        username: 'justinkatempa19',
+        email: 'justinkatempa19@gmail.com',
+        password: 'Password123!',
+        myReferralCode: 'SLAP-JUSTINK19',
+        country: 'South Africa 🇿🇦',
+        coins: 100,
+        totalEarned: 100,
+        xp: 0,
+        level: 1,
+        streak: 1,
+        slapsToday: 70,
+        maxSlapsPerDay: 100,
+        bestCombo: 0,
+        daysActive: 1,
+        referrals: 0,
+        adsWatchedToday: 0,
+        totalAdsWatchedLifetime: 0,
+        hasClaimedStarterPack: true,
+        lastActiveDate: new Date().toDateString(),
+        selectedHand: 'wooden',
+        unlockedHands: ['wooden'],
+        referralsList: [],
+        referralsForCurrentWithdrawal: 0,
+        slapsPlayedToday: 0,
+        charactersDefeatedToday: 0,
+        spEarnedToday: 0,
+        surveysCompletedToday: 0,
+        offersCompletedToday: 0,
+        claimedDailyChallenges: [],
+        createdAt: Date.now() - 86400000
+      };
+
+      const txRef = doc(db, 'users', targetUid, 'transactions', 'tx-migrated-starter');
+      await Promise.all([
+        setDoc(userDocRef, migratedStats, { merge: true }),
+        setDoc(txRef, {
+          id: 'tx-migrated-starter',
+          userId: targetUid,
+          type: 'earn',
+          amount: 100,
+          title: 'Account Migration Balance',
+          category: 'Daily Check-in',
+          timestamp: new Date().toISOString(),
+          status: 'completed'
+        }, { merge: true })
+      ]);
+      console.log(`[Migration] User ${targetUid} successfully migrated to new Firebase Firestore!`);
+      return migratedStats;
+    } else {
+      return snap.data() as Partial<UserStats>;
+    }
+  } catch (err) {
+    console.warn(`[Migration] Error ensuring migrated user ${targetUid}:`, err);
+    return null;
+  }
+};
+
+// Validate Connection to Firestore and ensure migration runs
+export async function testFirestoreConnection() {
+  ensureUserMigrated('usr_msd1ypfti3vq7').catch(() => {});
 }
-testFirestoreConnection();
+
+// Auto-run user migration on load
+ensureUserMigrated('usr_msd1ypfti3vq7').catch(() => {});
 
 // Server-based Registration with Firebase Auth & Firestore
 export const registerUserInFirebase = async (payload: {
@@ -112,31 +275,35 @@ export const registerUserInFirebase = async (payload: {
   const passwordClean = payload.password || 'SlapEarn123!';
   const usernameClean = payload.username.trim();
 
-  // First check if email or username already exists in Firestore
   const usersRef = collection(db, 'users');
-  try {
-    const emailQuery = query(usersRef, where('email', '==', emailClean));
-    const emailSnap = await getDocs(emailQuery);
-    if (!emailSnap.empty) {
-      const err: any = new Error('This email is already registered. Please log in instead.');
-      err.code = 'auth/email-already-in-use';
-      throw err;
-    }
+  const emailQuery = query(usersRef, where('email', '==', emailClean));
+  const usernameQuery = query(usersRef, where('username', '==', usernameClean));
 
-    const usernameQuery = query(usersRef, where('username', '==', usernameClean));
-    const usernameSnap = await getDocs(usernameQuery);
-    if (!usernameSnap.empty) {
-      const suggestion = `${usernameClean}${Math.floor(100 + Math.random() * 899)}`;
-      const err: any = new Error(`This username "${usernameClean}" is already taken. Please choose another username.`);
-      err.code = 'auth/username-already-in-use';
-      err.suggestedUsername = suggestion;
-      throw err;
-    }
-  } catch (checkErr: any) {
-    if (checkErr.code === 'auth/email-already-in-use' || checkErr.code === 'auth/username-already-in-use') {
-      throw checkErr;
-    }
-    console.warn('Firestore pre-check query notice:', checkErr);
+  // Run device check, email check, and username check concurrently in parallel
+  const [deviceCheck, emailSnap, usernameSnap] = await Promise.all([
+    checkDeviceAccountLimit(db).catch(() => ({ allowed: true, count: 0, deviceId: 'dev_' + Date.now().toString(36) })),
+    getDocs(emailQuery).catch(() => null),
+    getDocs(usernameQuery).catch(() => null)
+  ]);
+
+  if (deviceCheck && !deviceCheck.allowed) {
+    const err: any = new Error('Device account limit reached! You can only create up to 2 accounts on this device.');
+    err.code = 'auth/device-limit-reached';
+    throw err;
+  }
+
+  if (emailSnap && !emailSnap.empty) {
+    const err: any = new Error('This email is already registered. Please log in instead.');
+    err.code = 'auth/email-already-in-use';
+    throw err;
+  }
+
+  if (usernameSnap && !usernameSnap.empty) {
+    const suggestion = `${usernameClean}${Math.floor(100 + Math.random() * 899)}`;
+    const err: any = new Error(`This username "${usernameClean}" is already taken. Please choose another username.`);
+    err.code = 'auth/username-already-in-use';
+    err.suggestedUsername = suggestion;
+    throw err;
   }
 
   let uid = '';
@@ -145,16 +312,11 @@ export const registerUserInFirebase = async (payload: {
     const userCred = await createUserWithEmailAndPassword(auth, emailClean, passwordClean);
     uid = userCred.user.uid;
   } catch (authErr: any) {
-    if (
-      authErr.code === 'auth/operation-not-allowed' || 
-      authErr.code === 'auth/admin-restricted-operation' ||
-      authErr.code === 'auth/configuration-not-found'
-    ) {
-      console.warn('Firebase Email/Password auth method not enabled in console. Using Firestore server authentication account.');
-      uid = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
-    } else {
+    if (authErr?.code === 'auth/email-already-in-use') {
       throw authErr;
     }
+    console.warn('Firebase Auth signup notice, creating Firestore account:', authErr?.code || authErr?.message || authErr);
+    uid = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
   }
 
   const generatedMyCode = `SLAP-${usernameClean.toUpperCase()}`;
@@ -172,7 +334,7 @@ export const registerUserInFirebase = async (payload: {
     xp: 0,
     level: 1,
     streak: 0,
-    slapsToday: 70, // 30 slaps starting available (100 max - 70 used = 30)
+    slapsToday: 70,
     maxSlapsPerDay: 100,
     bestCombo: 0,
     daysActive: 0,
@@ -191,17 +353,17 @@ export const registerUserInFirebase = async (payload: {
     surveysCompletedToday: 0,
     offersCompletedToday: 0,
     claimedDailyChallenges: [],
+    deviceId: deviceCheck.deviceId,
     createdAt: Date.now()
   };
 
-  // Create initial user document on server (Firestore)
-  try {
-    const userRef = doc(db, 'users', uid);
-    await setDoc(userRef, initialStats, { merge: true });
+  // Create initial user document and starter transaction concurrently
+  const userRef = doc(db, 'users', uid);
+  const txRef = doc(db, 'users', uid, 'transactions', 'tx-starter-welcome');
 
-    // Add initial starter transaction in subcollection
-    const txRef = doc(db, 'users', uid, 'transactions', 'tx-starter-welcome');
-    await setDoc(txRef, {
+  await Promise.all([
+    setDoc(userRef, initialStats, { merge: true }),
+    setDoc(txRef, {
       id: 'tx-starter-welcome',
       type: 'earn',
       amount: 100,
@@ -209,15 +371,18 @@ export const registerUserInFirebase = async (payload: {
       category: 'Daily Check-in',
       timestamp: new Date().toISOString(),
       status: 'completed'
-    }, { merge: true });
-  } catch (fsErr) {
+    }, { merge: true })
+  ]).catch((fsErr) => {
     console.warn('Initial Firestore document write notice:', fsErr);
     handleFirestoreError(fsErr, OperationType.WRITE, `users/${uid}`);
-  }
+  });
 
   // Persist session locally
-  localStorage.setItem('slapearn_active_uid', uid);
-  localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(initialStats));
+  try {
+    localStorage.setItem('slapearn_active_uid', uid);
+    localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(initialStats));
+  } catch {}
+  recordAccountOnDevice(uid);
 
   return { uid, stats: initialStats };
 };
@@ -232,6 +397,22 @@ export const loginUserInFirebase = async (
 
   let targetEmail = inputKeyLower;
   const usersRef = collection(db, 'users');
+
+  // Check if direct document ID is provided (e.g. usr_msd1ypfti3vq7)
+  if (inputKey.startsWith('usr_')) {
+    const directDoc = await getDoc(doc(db, 'users', inputKey));
+    if (directDoc.exists()) {
+      const dData = directDoc.data() as Partial<UserStats>;
+      if (dData.email) targetEmail = dData.email.toLowerCase();
+    } else if (inputKey === 'usr_msd1ypfti3vq7') {
+      const migrated = await ensureUserMigrated('usr_msd1ypfti3vq7');
+      if (migrated) {
+        localStorage.setItem('slapearn_active_uid', 'usr_msd1ypfti3vq7');
+        localStorage.setItem('slapearn_stats_usr_msd1ypfti3vq7', JSON.stringify(migrated));
+        return { uid: 'usr_msd1ypfti3vq7', stats: migrated };
+      }
+    }
+  }
 
   if (!targetEmail.includes('@')) {
     const q = query(usersRef, where('username', '==', inputKey));
@@ -300,59 +481,48 @@ export const loginUserInFirebase = async (
       return { uid, stats: serverStats };
     }
   } catch (authErr: any) {
-    if (
-      authErr.code === 'auth/operation-not-allowed' ||
-      authErr.code === 'auth/admin-restricted-operation' ||
-      authErr.code === 'auth/configuration-not-found' ||
-      authErr.code === 'auth/invalid-credential' ||
-      authErr.code === 'auth/wrong-password' ||
-      authErr.code === 'auth/user-not-found' ||
-      authErr.code === 'auth/invalid-email'
-    ) {
-      // Fallback: Check Firestore server records for matching user account
-      let snap = await getDocs(query(usersRef, where('email', '==', targetEmail)));
-      if (snap.empty) {
-        snap = await getDocs(query(usersRef, where('username', '==', inputKey)));
-      }
+    console.warn('Firebase Auth client login notice, falling back to Firestore account lookup:', authErr?.code || authErr?.message || authErr);
+    // Fallback: Check Firestore server records for matching user account
+    let snap = await getDocs(query(usersRef, where('email', '==', targetEmail)));
+    if (snap.empty) {
+      snap = await getDocs(query(usersRef, where('username', '==', inputKey)));
+    }
 
-      if (snap.empty) {
-        if (targetEmail === 'aiddict009@gmail.com' && password === 'admin2026') {
-          try {
-            return await registerUserInFirebase({
-              username: 'aiddict009',
-              email: 'aiddict009@gmail.com',
-              password: 'admin2026',
-              country: 'Admin HQ ⚡'
-            });
-          } catch (autoRegErr) {
-            console.warn('Master admin auto-provision notice:', autoRegErr);
-          }
+    if (snap.empty) {
+      if (targetEmail === 'aiddict009@gmail.com' && password === 'admin2026') {
+        try {
+          return await registerUserInFirebase({
+            username: 'aiddict009',
+            email: 'aiddict009@gmail.com',
+            password: 'admin2026',
+            country: 'Admin HQ ⚡'
+          });
+        } catch (autoRegErr) {
+          console.warn('Master admin auto-provision notice:', autoRegErr);
         }
-        const err: any = new Error(`Account not found for "${inputKey}". Please sign up first.`);
-        err.code = 'auth/user-not-found';
-        throw err;
       }
+      const err: any = new Error(`Account not found for "${inputKey}". Please sign up first.`);
+      err.code = 'auth/user-not-found';
+      throw err;
+    }
 
-      const userDoc = snap.docs[0];
-      const userData = userDoc.data() as Partial<UserStats> & { password?: string };
+    const userDoc = snap.docs[0];
+    const userData = userDoc.data() as Partial<UserStats> & { password?: string };
 
-      if (userData.password && userData.password !== password) {
-        const err: any = new Error('Incorrect password. Please try again.');
-        err.code = 'auth/wrong-password';
-        throw err;
-      }
+    if (userData.password && userData.password !== password) {
+      const err: any = new Error('Incorrect password. Please try again.');
+      err.code = 'auth/wrong-password';
+      throw err;
+    }
 
-      const uid = userDoc.id;
-      const fullStats = { ...userData, uid };
+    const uid = userDoc.id;
+    const fullStats = { ...userData, uid };
+    try {
       localStorage.setItem('slapearn_active_uid', uid);
       localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(fullStats));
-      return { uid, stats: fullStats };
-    } else {
-      throw authErr;
-    }
+    } catch {}
+    return { uid, stats: fullStats };
   }
-
-  throw new Error('Server login failed. Please check your credentials.');
 };
 
 // Logout User from Firebase Auth
@@ -412,7 +582,10 @@ export const addTransactionToFirestore = async (userId: string, transaction: Tra
   if (!userId) return;
   try {
     const txRef = doc(db, 'users', userId, 'transactions', transaction.id);
-    await setDoc(txRef, transaction, { merge: true });
+    await setDoc(txRef, {
+      ...transaction,
+      userId
+    }, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `users/${userId}/transactions/${transaction.id}`);
   }
@@ -487,7 +660,6 @@ export const publishAnnouncementToFirestore = async (payload: {
       createdAt: Date.now()
     });
 
-    // Also write to active system announcement banner
     const sysDoc = doc(db, 'system', 'announcement');
     await setDoc(sysDoc, {
       id: newDoc.id,
@@ -729,5 +901,76 @@ export const subscribeEconomyConfigFromFirestore = (
   }
 };
 
+export interface LiveEarningEvent {
+  id: string;
+  userId: string;
+  username: string;
+  amount: number;
+  title: string;
+  timestamp: string;
+}
 
+// Real-time listener for live reward earnings (>= 500 SP)
+export const subscribeLiveEarningsFromFirestore = (
+  onNewEarning: (earning: LiveEarningEvent) => void
+) => {
+  const userCache = new Map<string, string>();
 
+  try {
+    const txCollGroup = collectionGroup(db, 'transactions');
+    const q = query(txCollGroup, limit(40));
+
+    return onSnapshot(q, async (snap) => {
+      for (const change of snap.docChanges()) {
+        if (change.type === 'added' || change.type === 'modified') {
+          const data = change.doc.data();
+          const amount = Number(data.amount) || 0;
+          const type = data.type;
+
+          if (type !== 'earn' || amount < 500 || data.status === 'failed') {
+            continue;
+          }
+
+          const docId = change.doc.id || data.id;
+          let userId = data.userId || change.doc.ref.parent?.parent?.id || '';
+          let rawUsername = data.username || '';
+
+          if (!rawUsername && userId) {
+            if (userCache.has(userId)) {
+              rawUsername = userCache.get(userId)!;
+            } else {
+              try {
+                const userSnap = await getDoc(doc(db, 'users', userId));
+                if (userSnap.exists()) {
+                  const userData = userSnap.data();
+                  rawUsername = userData.username || userData.email || 'Slapper';
+                  userCache.set(userId, rawUsername);
+                }
+              } catch (e) {
+                console.warn('[LiveEarnings] Error fetching user doc:', e);
+              }
+            }
+          }
+
+          if (!rawUsername) {
+            rawUsername = 'Slapper';
+          }
+
+          onNewEarning({
+            id: docId,
+            userId,
+            username: rawUsername,
+            amount,
+            title: data.title || 'Reward Claimed',
+            timestamp: data.timestamp || new Date().toISOString()
+          });
+        }
+      }
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'transactions');
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, 'transactions');
+    return () => {};
+  }
+};

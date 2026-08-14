@@ -3,7 +3,7 @@ export interface Transaction {
   type: 'earn' | 'redeem' | 'bonus';
   amount: number;
   title: string;
-  category: 'Daily Check-in' | 'Slap Game' | 'Survey' | 'Ad' | 'Offerwall' | 'Redemption' | 'Level Up';
+  category: 'Daily Check-in' | 'Slap Game' | 'Survey' | 'Ad' | 'Offerwall' | 'Redemption' | 'Level Up' | 'Weekly Leaderboard Reward' | 'Referral';
   timestamp: string;
   status: 'completed' | 'pending' | 'failed';
 }
@@ -32,6 +32,7 @@ export interface SurveyProfile {
 
 export interface UserStats {
   uid?: string;
+  deviceId?: string;
   country?: string;
   password?: string;
   coins: number;

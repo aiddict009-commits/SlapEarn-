@@ -673,9 +673,9 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
     
     sound.playSlap();
     setIsWatchingQuickAd(true);
-    setQuickAdCountdown(4);
+    setQuickAdCountdown(15);
 
-    let secLeft = 4;
+    let secLeft = 15;
     if (quickAdIntervalRef.current) clearInterval(quickAdIntervalRef.current);
     quickAdIntervalRef.current = setInterval(() => {
       secLeft -= 1;

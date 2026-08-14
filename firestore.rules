@@ -2,6 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Allow read/write for user documents and subcollections
+    match /{path=**}/transactions/{transactionId} {
+      allow read, write: if true;
+    }
+
     match /users/{userId} {
       allow read, write: if true;
 
@@ -36,6 +40,26 @@ service cloud.firestore {
     }
 
     match /system/{docId} {
+      allow read, write: if true;
+    }
+
+    match /weekly_leaderboard_payouts/{docId} {
+      allow read, write: if true;
+    }
+
+    match /monthly_referral_payouts/{docId} {
+      allow read, write: if true;
+    }
+
+    match /leaderboard_prize_dedup/{docId} {
+      allow read, write: if true;
+    }
+
+    match /monthly_referral_prize_dedup/{docId} {
+      allow read, write: if true;
+    }
+
+    match /external_postbacks/{docId} {
       allow read, write: if true;
     }
   }

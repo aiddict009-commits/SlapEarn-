@@ -110,3 +110,39 @@ body > div[style*="position: absolute"] {
   box-sizing: border-box !important;
 }
 
+/* Live Earnings Popup Animations */
+@keyframes letter-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fall-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+}
+
+.animate-letter-drop {
+  animation: letter-drop 0.35s ease-out forwards;
+  opacity: 0;
+}
+
+.animate-fall-out {
+  animation: fall-out 5s forwards;
+}
+

@@ -102,6 +102,19 @@
         "timestamp": { "type": "string" },
         "createdAt": { "type": "number" }
       }
+    },
+    "cpx_postbacks": {
+      "title": "CPX Research Postback Audit Logs",
+      "description": "Stores CPX Research transaction audit logs for deduplication and reversal handling.",
+      "type": "object",
+      "properties": {
+        "trans_id": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string" },
+        "amount_usd": { "type": "number" },
+        "spCredited": { "type": "number" },
+        "processedAt": { "type": "string" }
+      }
     }
   }
 }

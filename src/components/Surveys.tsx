@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ClipboardCheck, Clock, Award, ChevronRight, ArrowLeft, Check, CheckCircle2 } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import { sound } from '../utils/sound';
 import { Survey, Transaction } from '../types';
 
@@ -102,6 +104,57 @@ export default function Surveys({ updateCoinsAndXp, addNotification }: SurveysPr
   const [surveyAnswers, setSurveyAnswers] = useState<Record<string, string>>({});
   const [surveyCompleteStage, setSurveyCompleteStage] = useState<boolean>(false);
 
+  const [currentUserId, setCurrentUserId] = useState<string>(() => auth.currentUser?.uid || localStorage.getItem('slapearn_active_uid') || localStorage.getItem('slapearn_uid') || 'guest_user');
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>(() => auth.currentUser?.email || '');
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const script2 = { div_id: "sidebar", theme_style: 1, order_by: 1 };
+      const script4 = { div_id: "notification", theme_style: 4, position: 5, text: "", link: "", newtab: true };
+
+      const userId = user?.uid || localStorage.getItem('slapearn_active_uid') || localStorage.getItem('slapearn_uid') || 'guest_user';
+      const userEmail = user?.email || "";
+
+      setCurrentUserId(userId);
+      setCurrentUserEmail(userEmail);
+
+      const config = {
+        general_config: {
+          app_id: 35262,
+          ext_user_id: userId,
+          email: userEmail,
+        },
+        script_config: [script2, script4],
+        style_config: {
+          topbar_background_color: "#ffaf20"
+        }
+      };
+
+      (window as any).config = config;
+      (window as any).cpx_config = config;
+
+      // Dynamically load https://cdn.cpx-research.com/assets/js/cpxresearch.js
+      const scriptId = 'cpx-research-js-script';
+      const oldScript = document.getElementById(scriptId);
+      if (oldScript) {
+        oldScript.remove();
+      }
+
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://cdn.cpx-research.com/assets/js/cpxresearch.js';
+      script.async = true;
+      script.onerror = () => {
+        console.warn('[CPX Research] Script failed to load from CDN');
+      };
+      document.body.appendChild(script);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   // Cache survey statuses
   const saveSurveysToLocalStorage = (updated: Survey[]) => {
     localStorage.setItem('slapearn_surveys', JSON.stringify(updated));
@@ -196,6 +249,30 @@ export default function Surveys({ updateCoinsAndXp, addNotification }: SurveysPr
                   Refresh Surveys
                 </button>
               )}
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 shadow-inner space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
+                  <span>📊</span> CPX Research Live Survey Wall
+                </span>
+                <span className="text-[10px] bg-amber-400/10 text-amber-400 border border-amber-400/20 px-2 py-0.5 rounded-full font-mono">
+                  Official Router
+                </span>
+              </div>
+
+              <div className="w-full h-[540px] rounded-xl overflow-hidden bg-slate-900 border border-slate-800 relative">
+                <iframe
+                  src={`https://offers.cpx-research.com/index.php?app_id=35262&ext_user_id=${encodeURIComponent(currentUserId)}&email=${encodeURIComponent(currentUserEmail)}&subid_1=${encodeURIComponent(currentUserId)}`}
+                  title="CPX Research Live Survey Wall"
+                  className="w-full h-full border-none"
+                  style={{ width: '100%', height: '100%', border: 'none', WebkitOverflowScrolling: 'touch' }}
+                  allow="geolocation; microphone; camera; clipboard-write"
+                />
+              </div>
+
+              <div id="notification"></div>
+              <div id="sidebar" className="w-full rounded-xl overflow-hidden min-h-[50px]"></div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

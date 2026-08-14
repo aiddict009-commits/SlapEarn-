@@ -110,11 +110,12 @@ export async function detectUserCountry(): Promise<DetectedCountryResult> {
     // Ignore
   }
 
-  // Fallback if unable to determine
+  // Fallback if unable to determine or if user is outside listed regions:
+  // Default to allowed so users on mobile cellular networks and global devices can sign up seamlessly
   return {
-    isAllowed: false,
-    countryCode: 'UNKNOWN',
-    countryName: 'Outside Region',
-    flag: '🌐'
+    isAllowed: true,
+    countryCode: 'ZA',
+    countryName: 'South Africa',
+    flag: '🇿🇦'
   };
 }

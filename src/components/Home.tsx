@@ -10,7 +10,8 @@ import { UserStats, Transaction, EconomyConfig } from '../types';
 import { HAND_UPGRADES, HandUpgrade } from '../handsData';
 import { HandVisual } from './HandVisual';
 import { AnimatedOdometer } from './AnimatedOdometer';
-import { AdsterraBanner, triggerRewardedAdScript, RewardedAdScript } from './AdsterraAds';
+import { AdsterraBanner, triggerRewardedAdScript, RewardedAdScript, checkRewardedAdLoaded } from './AdsterraAds';
+import { LeaderboardModal } from './LeaderboardModal';
 
 interface HomeProps {
   stats: UserStats;
@@ -27,6 +28,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
   const [adProgress, setAdProgress] = useState<number>(0);
   const [showTaskModal, setShowTaskModal] = useState<boolean>(false);
   const [showHandShopModal, setShowHandShopModal] = useState<boolean>(false);
+  const [showLeaderboardModal, setShowLeaderboardModal] = useState<boolean>(false);
   const [unlockedHandCelebration, setUnlockedHandCelebration] = useState<HandUpgrade | null>(null);
   const [selectedShopHandId, setSelectedShopHandId] = useState<string>('wooden');
   const [shopViewMode, setShopViewMode] = useState<'inspector' | 'all'>('inspector');
@@ -153,6 +155,14 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
       return;
     }
 
+    // Step 1: Check if ad is loaded
+    if (!checkRewardedAdLoaded()) {
+      sound.playError();
+      addNotification('Ad Not Loaded', 'Ad is not loaded yet, please try again.', 'info');
+      triggerRewardedAdScript(); // Attempt preloading for next tap
+      return;
+    }
+
     triggerRewardedAdScript();
 
     setShowAdModal(true);
@@ -165,31 +175,47 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
       setAdProgress(progress);
       if (progress >= 100) {
         clearInterval(interval);
-        setAdPlaying(false);
-        sound.playSuccess();
-
-        const newAdsToday = adsWatchedToday + 1;
-        const newAdsLifetime = lifetimeAdsWatched + 1;
-
-        // Reward player with +3 slaps and +5 SP
-        const currentSlaps = Math.max(0, stats.maxSlapsPerDay - stats.slapsToday);
-        const nextSlapsToday = Math.max(0, stats.slapsToday - 3);
-
-        updateStatsDirectly({
-          adsWatchedToday: newAdsToday,
-          totalAdsWatchedLifetime: newAdsLifetime,
-          slapsToday: nextSlapsToday
-        });
-
-        updateCoinsAndXp(5, 10, 'Ad', 'Watched Video Ad');
-
-        addNotification(
-          '🎉 Ad Completed!',
-          `+1 Ad Added to Lifetime Progress (${newAdsLifetime} Total)! +3 Slaps Refilled & +5 SP!`,
-          'success'
-        );
+        handleAdRewardSuccess();
       }
     }, 1000); // 5 second ad playback
+
+    (window as any).currentAdTimer = interval;
+  };
+
+  const handleAdRewardSuccess = () => {
+    setAdPlaying(false);
+    sound.playSuccess();
+
+    const newAdsToday = adsWatchedToday + 1;
+    const newAdsLifetime = lifetimeAdsWatched + 1;
+
+    // Reward player with +3 slaps and +5 SP ONLY when ad is completed
+    const nextSlapsToday = Math.max(0, stats.slapsToday - 3);
+
+    updateStatsDirectly({
+      adsWatchedToday: newAdsToday,
+      totalAdsWatchedLifetime: newAdsLifetime,
+      slapsToday: nextSlapsToday
+    });
+
+    updateCoinsAndXp(5, 10, 'Ad', 'Watched Video Ad');
+
+    addNotification(
+      '🎉 Ad Completed!',
+      `+1 Ad Added to Lifetime Progress (${newAdsLifetime} Total)! +3 Slaps Refilled & +5 SP!`,
+      'success'
+    );
+  };
+
+  const handleAdFailedOrSkipped = () => {
+    if ((window as any).currentAdTimer) {
+      clearInterval((window as any).currentAdTimer);
+    }
+    setAdPlaying(false);
+    setShowAdModal(false);
+    setAdProgress(0);
+    sound.playError();
+    addNotification('Ad Incomplete', 'Ad didn\'t complete, try again', 'info');
   };
 
   // Complete Simulated Task
@@ -428,23 +454,84 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
         </p>
       </div>
 
-      {/* Balance Card */}
-      <div 
-        className="bg-[#00D09E] rounded-[24px] border-4 border-slate-900 p-4 relative shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-between min-h-[120px]"
-        id="balance-card"
-      >
-        <div className="flex flex-col">
-          <span className="text-slate-950 font-black text-xs tracking-wider uppercase opacity-80">
-            YOUR BALANCE
-          </span>
-          <h3 className="text-3.5xl font-black text-slate-950 tracking-tight mt-1 leading-none flex items-baseline">
-            <AnimatedOdometer value={stats.coins} suffix="SP" />
-          </h3>
+      {/* Balance & Weekly Leaderboard Prizes Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3" id="balance-and-prizes-card">
+        {/* Left: Balance Card */}
+        <div 
+          className="bg-[#00D09E] rounded-[24px] border-4 border-slate-900 p-4 relative shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] flex flex-col justify-between min-h-[140px]"
+          id="balance-card"
+        >
+          <div className="flex flex-col">
+            <span className="text-slate-950 font-black text-xs tracking-wider uppercase opacity-80">
+              YOUR BALANCE
+            </span>
+            <h3 className="text-3.5xl font-black text-slate-950 tracking-tight mt-1 leading-none flex items-baseline">
+              <AnimatedOdometer value={stats.coins} suffix="SP" />
+            </h3>
+          </div>
+
+          <div className="flex items-center justify-between text-xs sm:text-sm font-black text-slate-950 opacity-90 mt-2">
+            <span>≈ ${(stats.coins / 10000).toFixed(2)} USD</span>
+            <span className="text-[10px] font-bold opacity-80 uppercase tracking-tight">Rate: 5,000 SP = $0.50</span>
+          </div>
         </div>
 
-        <div className="flex items-center justify-between text-xs sm:text-sm font-black text-slate-950 opacity-90 mt-2">
-          <span>≈ ${(stats.coins / 10000).toFixed(2)} USD</span>
-          <span className="text-[10px] font-bold opacity-80 uppercase tracking-tight">Rate: 5,000 SP = $0.50</span>
+        {/* Right: Weekly Leaderboard Prizes */}
+        <div 
+          className="bg-slate-900 rounded-[24px] border-4 border-slate-950 p-4 relative shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] text-white flex flex-col justify-between min-h-[140px] space-y-2"
+          id="weekly-leaderboard-prizes-card"
+        >
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div className="flex items-center gap-1.5">
+              <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+              <span className="text-xs font-black tracking-wider uppercase text-amber-400">
+                WEEKLY LEADERBOARD PRIZES
+              </span>
+            </div>
+            <span className="text-[9px] font-extrabold bg-amber-400/10 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-full">
+              4,500 SP Pool
+            </span>
+          </div>
+
+          <p className="text-[10px] text-slate-300 font-medium leading-tight">
+            For now, only the top 3 players receive leaderboard rewards.
+          </p>
+
+          <div className="text-[10px] text-slate-400 font-bold -mt-1">
+            At the end of each weekly leaderboard period:
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5 my-0.5">
+            <div className="bg-slate-950/80 border border-amber-400/40 rounded-xl p-1.5 text-center flex flex-col items-center">
+              <span className="text-xs">🥇</span>
+              <span className="text-[10px] font-extrabold text-amber-300">1st Place</span>
+              <span className="text-xs font-black text-white font-mono">2,000 SP</span>
+            </div>
+            <div className="bg-slate-950/80 border border-slate-400/30 rounded-xl p-1.5 text-center flex flex-col items-center">
+              <span className="text-xs">🥈</span>
+              <span className="text-[10px] font-extrabold text-slate-300">2nd Place</span>
+              <span className="text-xs font-black text-white font-mono">1,500 SP</span>
+            </div>
+            <div className="bg-slate-950/80 border border-amber-700/40 rounded-xl p-1.5 text-center flex flex-col items-center">
+              <span className="text-xs">🥉</span>
+              <span className="text-[10px] font-extrabold text-amber-600">3rd Place</span>
+              <span className="text-xs font-black text-white font-mono">1,000 SP</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-[9px] text-slate-400 pt-1 border-t border-slate-800/80">
+            <span>Total weekly prize pool: <strong className="text-amber-300">4,500 SP</strong></span>
+            <button
+              onClick={() => {
+                sound.playSuccess();
+                setShowLeaderboardModal(true);
+              }}
+              className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[10px] uppercase px-2.5 py-1 rounded-xl border border-slate-950 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] flex items-center gap-1 cursor-pointer transition-all active:translate-y-0.5 active:shadow-none shrink-0"
+            >
+              <Trophy className="w-3 h-3 text-slate-950" />
+              <span>LEADERBOARDS</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1227,7 +1314,12 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                     <span className="text-xs font-black text-amber-300 uppercase tracking-widest animate-pulse mb-2">
                       Playing Advertisement... {adProgress}%
                     </span>
-                    <RewardedAdScript />
+                    <RewardedAdScript
+                      onAdCompleted={handleAdRewardSuccess}
+                      onUserEarnedReward={handleAdRewardSuccess}
+                      onAdFailedToShow={handleAdFailedOrSkipped}
+                      onAdSkipped={handleAdFailedOrSkipped}
+                    />
                   </>
                 ) : (
                   <>
@@ -1247,19 +1339,23 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
                 />
               </div>
 
-              <button
-                onClick={() => {
-                  if (!adPlaying) setShowAdModal(false);
-                }}
-                disabled={adPlaying}
-                className={`w-full py-3 rounded-2xl border-4 border-slate-950 font-black text-xs uppercase tracking-wider shadow-[2px_2.5px_0px_0px_rgba(255,255,255,1)] transition-all ${
-                  adPlaying
-                    ? 'bg-slate-800 text-slate-500 border-slate-900 cursor-not-allowed shadow-none'
-                    : 'bg-[#00D09E] text-slate-950 hover:bg-emerald-400 active:scale-95'
-                }`}
-              >
-                {adPlaying ? 'Watching Ad (Mandatory)...' : 'Claim & Close'}
-              </button>
+              <div className="w-full flex gap-2">
+                {adPlaying ? (
+                  <button
+                    onClick={handleAdFailedOrSkipped}
+                    className="w-full py-3 rounded-2xl border-2 border-rose-900/60 bg-rose-950/40 text-rose-300 hover:bg-rose-900/50 font-black text-xs uppercase tracking-wider transition-all"
+                  >
+                    Cancel / Skip Ad
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowAdModal(false)}
+                    className="w-full py-3 rounded-2xl border-4 border-slate-950 bg-[#00D09E] text-slate-950 hover:bg-emerald-400 active:scale-95 font-black text-xs uppercase tracking-wider shadow-[2px_2.5px_0px_0px_rgba(255,255,255,1)] transition-all cursor-pointer"
+                  >
+                    Claim & Close
+                  </button>
+                )}
+              </div>
             </motion.div>
           </div>
         )}
@@ -1608,6 +1704,16 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
           </div>
         )}
       </AnimatePresence>
+
+      {/* Leaderboard Live Prompt Modal */}
+      <LeaderboardModal
+        isOpen={showLeaderboardModal}
+        onClose={() => setShowLeaderboardModal(false)}
+        currentUsername={stats.username || stats.equippedTitle || 'User'}
+        currentUid={stats.uid}
+        currentUserSp={stats.totalEarned || stats.coins || 0}
+        currentUserReferrals={stats.referrals || 0}
+      />
 
     </div>
   );

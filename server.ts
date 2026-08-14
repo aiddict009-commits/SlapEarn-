@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { processMyLeadPostback } from "./src/lib/myleadPostbackHandler.js";
+import { processGenericPostback } from "./src/lib/genericPostbackHandler.js";
+import { processCpxPostback } from "./src/lib/cpxPostbackHandler.js";
 
 async function startServer() {
   const app = express();
@@ -10,8 +12,36 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // MyLead Postback Endpoint (GET, POST, HEAD, OPTIONS)
-  app.all(["/api/myleadPostback", "/api/myleadPostback/", "/api/myleadpostback", "/api/myleadpostback/"], async (req, res) => {
+  // Dedicated CPX Research Postback Endpoint
+  app.all(["/api/cpx/postback", "/api/cpx/postback/", "/api/postback/cpx", "/api/postback/cpx/"], async (req, res) => {
+    console.log("CPX HIT:", req.query);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Content-Type", "text/plain");
+
+    if (req.method === "OPTIONS" || req.method === "HEAD") {
+      res.status(200).send("1");
+      return;
+    }
+
+    try {
+      const payload = { ...req.query, ...(req.body || {}) };
+      const result = await processCpxPostback(payload);
+      console.log("CPX Postback Processing Result:", result);
+      if (result && typeof result.responseBody === "string") {
+        res.status(200).send(result.responseBody);
+        return;
+      }
+    } catch (err: any) {
+      console.error("CPX postback route handler error:", err);
+    }
+
+    res.status(200).send("1");
+  });
+
+  // Generic External Reward Postback Endpoint (CPX Research, Torox, Monlix, BitLabs, etc.)
+  app.all(["/api/reward-postback", "/api/reward-postback/", "/api/postback/generic", "/api/postback/generic/"], async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -22,18 +52,42 @@ async function startServer() {
     }
 
     try {
+      const payload = { ...req.query, ...(req.body || {}) };
+      const authHeader = req.headers.authorization;
+
+      const result = await processGenericPostback(payload, authHeader);
+      res.status(result.statusCode).json(result.responseBody);
+    } catch (err: any) {
+      console.error("Generic postback handler error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error processing external reward postback",
+        error: "INTERNAL_ERROR"
+      });
+    }
+  });
+
+  // MyLead Postback Endpoint (GET, POST, HEAD, OPTIONS)
+  app.all(["/api/myleadPostback", "/api/myleadPostback/", "/api/myleadpostback", "/api/myleadpostback/"], async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Content-Type", "text/plain");
+
+    if (req.method === "OPTIONS" || req.method === "HEAD") {
+      res.status(200).send("1");
+      return;
+    }
+
+    try {
       const params = { ...req.query, ...(req.body || {}) };
       const authHeader = req.headers.authorization;
 
       const result = await processMyLeadPostback(params, authHeader);
-      res.status(200).json(typeof result.responseBody === "string" ? { message: result.responseBody } : result.responseBody);
+      res.status(200).send(typeof result.responseBody === "string" ? result.responseBody : "1");
     } catch (err: any) {
       console.warn("MyLead postback handler error, returning 200 fallback:", err);
-      res.status(200).json({
-        success: true,
-        message: "MyLead postback received",
-        status: "ok_fallback"
-      });
+      res.status(200).send("1");
     }
   });
 
@@ -45,6 +99,63 @@ async function startServer() {
       iso: new Date(now).toISOString(),
       timezone: "UTC"
     });
+  });
+
+  // Weekly Leaderboard History & Finalize Endpoints
+  app.get("/api/leaderboard/weekly/history", async (req, res) => {
+    try {
+      const { fetchWeeklyLeaderboardHistory, autoFinalizeCompletedLeaderboards } = await import("./src/lib/weeklyLeaderboard.js");
+      await autoFinalizeCompletedLeaderboards().catch(() => {});
+      const history = await fetchWeeklyLeaderboardHistory();
+      res.json({ success: true, history });
+    } catch (err: any) {
+      console.error("Error fetching weekly leaderboard history:", err);
+      res.status(500).json({ success: false, history: [] });
+    }
+  });
+
+  app.post("/api/leaderboard/weekly/finalize", async (req, res) => {
+    try {
+      const { weekId, winners } = req.body || {};
+      const { finalizeWeeklyLeaderboardPrizes } = await import("./src/lib/weeklyLeaderboard.js");
+      const result = await finalizeWeeklyLeaderboardPrizes(weekId, winners);
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      console.error("Error finalizing weekly leaderboard prizes:", err);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error finalizing weekly leaderboard prizes.",
+        error: err.message || "INTERNAL_ERROR"
+      });
+    }
+  });
+
+  app.post("/api/leaderboard/monthly/finalize", async (req, res) => {
+    try {
+      const { monthId, winner } = req.body || {};
+      const { finalizeMonthlyReferralPrize } = await import("./src/lib/weeklyLeaderboard.js");
+      const result = await finalizeMonthlyReferralPrize(monthId, winner);
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      console.error("Error finalizing monthly referral prize:", err);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error finalizing monthly referral prize.",
+        error: err.message || "INTERNAL_ERROR"
+      });
+    }
+  });
+
+  app.get("/api/leaderboard/monthly/history", async (req, res) => {
+    try {
+      const { fetchMonthlyReferralHistory, autoFinalizeCompletedLeaderboards } = await import("./src/lib/weeklyLeaderboard.js");
+      await autoFinalizeCompletedLeaderboards().catch(() => {});
+      const history = await fetchMonthlyReferralHistory();
+      res.json({ success: true, history });
+    } catch (err: any) {
+      console.error("Error fetching monthly referral history:", err);
+      res.status(500).json({ success: false, history: [] });
+    }
   });
 
   // Server-side account age and withdrawal verification endpoint
