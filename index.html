@@ -3,8 +3,18 @@
   <head>
     <meta name="clckd" content="e454535d04d6fcb3f3cef604d22ac37c" />
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>SlapEarn - Slap & Earn Cash Rewards</title>
+
+    <!--
+      Telegram Mini App SDK.
+      Must load before /src/main.tsx so `initData` is captured on first paint
+      (Telegram Web injects the signed payload through the URL and this script
+      exposes it as window.Telegram.WebApp.initData). Outside Telegram the
+      script is harmless: platform reports "unknown" and the app runs as a
+      normal web app with an instant guest session.
+    -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
     <meta name="a2eda777e5b55e2d5c88c775235d59e43b447c68" content="a2eda777e5b55e2d5c88c775235d59e43b447c68" />
     

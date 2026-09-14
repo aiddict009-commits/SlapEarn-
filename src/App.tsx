@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Volume2,
@@ -50,7 +50,7 @@ import {
   saveOnEvent,
   resetCloudSaveState
 } from './lib/cloudSave';
-import { signInWithRedirect, getRedirectResult, onAuthStateChanged } from 'firebase/auth';
+import { getRedirectResult, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 // Import subcomponents
@@ -59,7 +59,7 @@ import SlapGame from './components/SlapGame';
 import EarnView from './components/EarnView';
 import Redeem from './components/Redeem';
 import ProfileView from './components/ProfileView';
-import AuthScreen, { AuthUser } from './components/AuthScreen';
+import BootSplash from './components/BootSplash';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { NotificationsPanel, AppNotification } from './components/NotificationsPanel';
 import AdminDashboard from './components/AdminDashboard';
@@ -67,6 +67,13 @@ import { AnimatedOdometer } from './components/AnimatedOdometer';
 import LiveEarningsPopup from './components/LiveEarningsPopup';
 import ProxyAlertOverlay from './components/ProxyAlertOverlay';
 import LegalPage from './components/LegalPage';
+import {
+  bootstrapAutoSession,
+  readStoredSessionProfile,
+  upgradeSessionToTelegram,
+  SessionUser,
+} from './lib/autoSession';
+import { initTelegramChrome, isTelegramEnvironment } from './lib/telegramSdk';
 
 interface NotificationToast {
   id: string;
@@ -109,7 +116,7 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
     id: 'tx-starter-welcome',
     type: 'earn',
     amount: 100,
-    title: 'Starter Signup Balance',
+    title: 'Starter Balance',
     category: 'Daily Check-in',
     timestamp: new Date().toISOString(),
     status: 'completed'
@@ -142,11 +149,22 @@ export default function App() {
   }, [stats]);
 
   // Auth state driven by Firebase Auth & Cloud Save
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authUser, setAuthUser] = useState<SessionUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  // Session started without any cloud auth (no Firebase credentials reachable)
+  const [isLocalSession, setIsLocalSession] = useState<boolean>(false);
+  const [bootError, setBootError] = useState<string | null>(null);
+
+  // True when the app runs inside the Telegram Mini App / Telegram Web frame
+  const [inTelegram] = useState<boolean>(() => isTelegramEnvironment());
+
+  // Telegram Mini App chrome (expand viewport, match colours, keep swipes from closing the game)
+  useEffect(() => {
+    initTelegramChrome();
+  }, []);
 
   // Legal route state for direct URL visits to /terms or /privacy
   const [legalRoute, setLegalRoute] = useState<'terms' | 'privacy' | null>(() => {
@@ -173,9 +191,155 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Listen to real-time Firebase Auth status & Google redirect result
+  // =========================================================================
+  // FORMLESS SESSION BOOTSTRAP
+  // -------------------------------------------------------------------------
+  // SlapEarn no longer shows a sign-up or login screen. Firebase Auth state is
+  // the single source of truth and, when no session exists yet, the app
+  // bootstraps one automatically:
+  //   Telegram Mini App  -> signed initData verified by the API -> custom token
+  //   Plain browser      -> anonymous Firebase session (instant guest)
+  //   No server creds    -> server-signed guest token, or a local-only session
+  // =========================================================================
+  const bootstrapStartedRef = useRef(false);
+  const telegramUpgradeAttemptedRef = useRef(false);
+
+  const applyLocalSession = useCallback((sessionUser: SessionUser, warnings: string[]) => {
+    const localStatsKey = `slapearn_stats_${sessionUser.uid}`;
+    let restored: UserStats = { ...INITIAL_STATS };
+    try {
+      const raw = localStorage.getItem(localStatsKey);
+      if (raw) restored = { ...restored, ...JSON.parse(raw) };
+    } catch {
+      /* corrupted cache — start from the default profile */
+    }
+
+    restored = {
+      ...restored,
+      uid: sessionUser.uid,
+      username: restored.username || sessionUser.username,
+    };
+
+    localStorage.setItem('slapearn_active_uid', sessionUser.uid);
+    setStats(restored);
+    setTransactions([...INITIAL_TRANSACTIONS]);
+    setAuthUser({
+      ...sessionUser,
+      username: restored.username || sessionUser.username,
+      myReferralCode: restored.myReferralCode || sessionUser.myReferralCode,
+      country: restored.country || sessionUser.country,
+    });
+    setFirebaseUid(null);
+    setIsLocalSession(true);
+    setIsAdmin(false);
+    setIsAuthenticated(true);
+    setIsAuthLoading(false);
+    if (warnings.includes('LOCAL_ONLY_SESSION')) {
+      addNotification('Offline Session Started', 'Cloud sync is unavailable right now — progress is kept on this device.', 'info');
+    }
+  }, []);
+
+  const applyFirebaseSession = useCallback(async (firebaseUser: FirebaseUser) => {
+    const activeUid = firebaseUser.uid;
+    console.log('AUTH STATE:', activeUid);
+    localStorage.setItem('slapearn_active_uid', activeUid);
+    setFirebaseUid(activeUid);
+    setIsAuthenticated(true);
+    setIsLocalSession(false);
+    setBootError(null);
+
+    // Verify Firebase Custom Claims ({ admin: true }) — legacy e-mail accounts refresh
+    try {
+      const tokenResult = await firebaseUser.getIdTokenResult(Boolean(firebaseUser.email));
+      setIsAdmin(Boolean(tokenResult?.claims?.admin));
+    } catch {
+      setIsAdmin(false);
+    }
+
+    try {
+      // Server-enforced device registration & multi-account limit check (Fix 5)
+      await registerOrInitUserApi();
+    } catch (regErr: any) {
+      console.warn('[Auth] Server registration/device limit check:', regErr);
+      if (regErr?.message?.includes('MAX_ACCOUNTS') || regErr?.message?.includes('Maximum account limit')) {
+        addNotification('Device Limit Notice', 'This device already has the maximum number of linked accounts.', 'info');
+      }
+    }
+
+    // Load user stats ONCE from Cloud Save System (Firestore + Local Cache)
+    const sessionProfile = readStoredSessionProfile();
+    const loadedStats = await loadUserData(activeUid, INITIAL_STATS);
+    const mergedStats: UserStats = {
+      ...loadedStats,
+      uid: activeUid,
+      username: loadedStats.username || sessionProfile?.username || firebaseUser.displayName || 'Slapper',
+      country: loadedStats.country || sessionProfile?.country || 'South Africa 🇿🇦',
+      myReferralCode: loadedStats.myReferralCode || sessionProfile?.myReferralCode || `SLAP-${activeUid.slice(0, 6).toUpperCase()}`,
+    };
+    setStats(mergedStats);
+    if (!loadedStats.username) {
+      markDirtyAndScheduleSave(activeUid, mergedStats);
+    }
+
+    setAuthUser({
+      uid: activeUid,
+      username: mergedStats.username || 'Slapper',
+      email: mergedStats.email || firebaseUser.email || '',
+      myReferralCode: mergedStats.myReferralCode || `SLAP-${activeUid.slice(0, 6).toUpperCase()}`,
+      handle: sessionProfile?.handle,
+      avatarUrl: sessionProfile?.avatarUrl || (firebaseUser as any).photoURL || '',
+      country: mergedStats.country,
+      provider: sessionProfile?.provider || 'guest',
+      verified: sessionProfile?.verified ?? false,
+      telegramId: sessionProfile?.telegramId,
+      startParam: sessionProfile?.startParam ?? null,
+    });
+
+    // Fetch transactions from server & cache
+    const remoteTxs = await fetchTransactionsFromFirestore(activeUid);
+    const cachedTxsRaw = localStorage.getItem(`slapearn_txs_${activeUid}`);
+    const cachedTxs = cachedTxsRaw ? JSON.parse(cachedTxsRaw) : [];
+
+    if (remoteTxs && remoteTxs.length > 0) {
+      setTransactions(remoteTxs);
+    } else if (cachedTxs.length > 0) {
+      setTransactions(cachedTxs);
+    }
+    setIsAuthLoading(false);
+
+    // Opened inside Telegram with a pre-existing (guest) session? Link the two so
+    // the player keeps their progress under their Telegram account.
+    if (!telegramUpgradeAttemptedRef.current && (inTelegram || (typeof window !== 'undefined' && window.location.search.includes('hash=')))) {
+      telegramUpgradeAttemptedRef.current = true;
+      const upgrade = await upgradeSessionToTelegram(firebaseUser);
+      if (upgrade.status === 'linked') {
+        addNotification('Telegram Linked', 'Your Telegram account is now linked to this session.', 'success');
+        setAuthUser((prev) => (prev && upgrade.user ? { ...prev, ...upgrade.user } : prev));
+      } else if (upgrade.status === 'failed') {
+        console.warn('[Auth] Telegram linking skipped:', upgrade.message);
+      }
+    }
+  }, [inTelegram]);
+
+  const runAutoBootstrap = useCallback(async () => {
+    try {
+      const result = await bootstrapAutoSession();
+      result.warnings.forEach((warning) => console.warn('[AutoSession]', warning));
+
+      if (result.mode === 'firebase' && auth.currentUser) {
+        return; // the auth listener below takes over and loads the profile
+      }
+      applyLocalSession(result.user, result.warnings);
+    } catch (err: any) {
+      console.error('[AutoSession] Session bootstrap failed:', err);
+      setBootError('Could not start a session on this device. Check your connection and try again.');
+      setIsAuthLoading(false);
+    }
+  }, [applyLocalSession]);
+
+  // Listen to real-time Firebase Auth status — this is what starts the app now
   useEffect(() => {
-    // Handle redirect result
+    // Handle a pending Google redirect result (legacy accounts only)
     getRedirectResult(auth)
       .then((r) => {
         if (r) console.log('redirect ok', r.user.uid);
@@ -183,76 +347,42 @@ export default function App() {
       .catch((e) => console.error('redirect error', e));
 
     const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        const storedUid = localStorage.getItem('slapearn_active_uid');
-        if (!storedUid) {
-          setFirebaseUid(null);
-          setIsAuthenticated(false);
-          setAuthUser(null);
-          setStats({ ...INITIAL_STATS });
-          setTransactions([]);
-          setIsAuthLoading(false);
-          return;
-        }
-      }
-
-      const activeUid = user ? user.uid : localStorage.getItem('slapearn_active_uid')!;
-      console.log('AUTH STATE:', activeUid);
-      localStorage.setItem('slapearn_active_uid', activeUid);
-      setFirebaseUid(activeUid);
-      setIsAuthenticated(true);
-
       if (user) {
-        try {
-          // Verify Firebase Custom Claims ({ admin: true })
-          const tokenResult = await user.getIdTokenResult(true);
-          setIsAdmin(Boolean(tokenResult?.claims?.admin));
-        } catch {
-          setIsAdmin(false);
-        }
-
-        try {
-          // Server-enforced device registration & multi-account limit check (Fix 5)
-          await registerOrInitUserApi();
-        } catch (regErr: any) {
-          console.warn('[Auth] Server registration/device limit check:', regErr);
-          if (regErr?.message?.includes('MAX_ACCOUNTS') || regErr?.message?.includes('Maximum account limit')) {
-            alert('Device Account Limit Reached: Maximum of 2 accounts are allowed per device.');
-            await logoutUserInFirebase();
-            return;
-          }
-        }
-      } else {
-        setIsAdmin(false);
+        await applyFirebaseSession(user);
+        return;
       }
 
-      // Load user stats ONCE from Cloud Save System (Firestore + Local Cache)
-      const loadedStats = await loadUserData(activeUid, INITIAL_STATS);
-      setStats(loadedStats);
-
-      setAuthUser({
-        uid: activeUid,
-        username: loadedStats.username || user?.displayName || 'Slapper',
-        email: loadedStats.email || user?.email || '',
-        myReferralCode: loadedStats.myReferralCode || `SLAP-${(loadedStats.username || 'SLAPPER').toUpperCase()}`,
-        country: loadedStats.country || 'South Africa 🇿🇦'
-      });
-
-      // Fetch transactions from server & cache
-      const remoteTxs = await fetchTransactionsFromFirestore(activeUid);
-      const cachedTxsRaw = localStorage.getItem(`slapearn_txs_${activeUid}`);
-      const cachedTxs = cachedTxsRaw ? JSON.parse(cachedTxsRaw) : [];
-
-      if (remoteTxs && remoteTxs.length > 0) {
-        setTransactions(remoteTxs);
-      } else if (cachedTxs.length > 0) {
-        setTransactions(cachedTxs);
-      }
-      setIsAuthLoading(false);
+      // No (usable) persisted session -> bootstrap one, exactly once.
+      if (bootstrapStartedRef.current) return;
+      bootstrapStartedRef.current = true;
+      console.log('[Auth] No session found — starting formless bootstrap (Telegram / guest).');
+      await runAutoBootstrap();
     });
 
     return () => unsub();
-  }, []);
+  }, [applyFirebaseSession, runAutoBootstrap]);
+
+  // Local-only sessions keep their progress on this device
+  useEffect(() => {
+    if (!isLocalSession || !authUser?.uid) return;
+    const storageKey = `slapearn_stats_${authUser.uid}`;
+    const persist = () => {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(statsRef.current));
+      } catch {
+        /* storage full / private mode */
+      }
+    };
+    const interval = setInterval(persist, 5000);
+    window.addEventListener('beforeunload', persist);
+    document.addEventListener('visibilitychange', persist);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', persist);
+      document.removeEventListener('visibilitychange', persist);
+      persist();
+    };
+  }, [isLocalSession, authUser?.uid]);
 
   // Hilltop Push Notification Script - Loaded once only after user authentication (NOT on landing page)
   useEffect(() => {
@@ -399,39 +529,18 @@ export default function App() {
     }
   };
 
-  // Handle Login / Sign Up success callback
-  const handleLoginSuccess = async (user: AuthUser, isNewUser: boolean) => {
-    localStorage.setItem('slapearn_active_uid', user.uid);
-    localStorage.setItem('slapearn_user_profile', JSON.stringify(user));
-    setAuthUser(user);
-    setIsAuthenticated(true);
-    setFirebaseUid(user.uid);
-
-    // Load user stats ONCE from Cloud Save System
-    const loadedStats = await loadUserData(user.uid, INITIAL_STATS);
-    setStats(loadedStats);
-
-    const remoteTxs = await fetchTransactionsFromFirestore(user.uid);
-    const cachedTxsRaw = localStorage.getItem(`slapearn_txs_${user.uid}`);
-    const cachedTxs = cachedTxsRaw ? JSON.parse(cachedTxsRaw) : [];
-
-    if (remoteTxs && remoteTxs.length > 0) {
-      setTransactions(remoteTxs);
-      localStorage.setItem(`slapearn_txs_${user.uid}`, JSON.stringify(remoteTxs));
-    } else if (cachedTxs.length > 0) {
-      setTransactions(cachedTxs);
-    }
-
-    if (isNewUser) {
-      addNotification('🎉 Welcome to SlapEarn!', `Account created for ${user.username}! +100 SP Starter Balance awarded!`, 'success');
-    } else {
-      addNotification('Welcome Back!', `Logged in as ${user.username}`, 'success');
-    }
-  };
-
+  // Sessions are managed automatically: Telegram, instant guest or local.
+  // The old e-mail/password handlers were removed together with AuthScreen.
   const handleLogout = async () => {
     sound.playSuccess();
-    // Flush & save data to Firestore and cache before signing out
+
+    // Telegram & guest sessions are automatic — signing out would simply create
+    // a brand new empty account, so the action is intentionally neutralised.
+    if (authUser && authUser.provider !== 'local' && !authUser.email) {
+      addNotification('Sign-out Disabled', 'Your session is linked automatically. Progress stays safe on this account.', 'info');
+      return;
+    }
+
     if (firebaseUid && statsRef.current) {
       try {
         await saveOnEvent(firebaseUid, statsRef.current, 'sign_out');
@@ -441,14 +550,11 @@ export default function App() {
       }
     }
     resetCloudSaveState();
-    await logoutUserInFirebase();
-    setFirebaseUid(null);
-    setAuthUser(null);
-    setIsAuthenticated(false);
-    setStats({ ...INITIAL_STATS });
-    setTransactions([]);
-    setNotifications([]);
-    addNotification('Logged Out', 'Your points and data have been safely saved. Sign back in anytime!', 'info');
+    if (firebaseUid) {
+      await logoutUserInFirebase();
+    }
+    localStorage.removeItem('slapearn_active_uid');
+    window.location.reload();
   };
 
   // Real-time listener for announcements broadcasted from Admin Dashboard
@@ -807,18 +913,32 @@ export default function App() {
   }
 
   return (
-    <div className="h-[100dvh] w-screen overflow-hidden bg-[#FDFBF2] sm:bg-[#111317] text-slate-800 flex items-center justify-center font-sans p-0 sm:p-4 selection:bg-[#FFEAF0] selection:text-[#E33D6F]" id="slapearn-main-app">
+    <div
+      className={`h-[100dvh] w-screen overflow-hidden bg-[#FDFBF2] text-slate-800 flex items-center justify-center font-sans selection:bg-[#FFEAF0] selection:text-[#E33D6F] ${
+        inTelegram ? 'p-0' : 'p-0 sm:p-4 sm:bg-[#111317]'
+      }`}
+      id="slapearn-main-app"
+    >
       {/* Global Fullscreen Proxy / VPN Security Red Alert Overlay */}
       <ProxyAlertOverlay status={proxyStatus} />
       
-      {/* Smartphone Viewport Card Mockup */}
-      <div className="w-full h-[100dvh] sm:h-[860px] sm:max-w-[420px] sm:rounded-[48px] sm:border-8 sm:border-slate-900 bg-[#FDFBF2] flex flex-col shadow-2xl overflow-hidden relative" id="mobile-viewport">
+      {/* Smartphone Viewport Card Mockup (Telegram Mini App renders edge-to-edge instead) */}
+      <div
+        className={`w-full h-[100dvh] bg-[#FDFBF2] flex flex-col overflow-hidden relative ${
+          inTelegram
+            ? 'max-w-none shadow-none'
+            : 'sm:h-[860px] sm:max-w-[420px] sm:rounded-[48px] sm:border-8 sm:border-slate-900 shadow-2xl'
+        }`}
+        id="mobile-viewport"
+      >
         
-        {/* Notch details for Desktop Mockup view */}
-        <div className="hidden sm:flex absolute top-0 left-0 right-0 h-6 bg-slate-900 z-50 items-center justify-center gap-1.5 rounded-t-xl">
-          <div className="w-12 h-1 bg-slate-800 rounded-full" />
-          <div className="w-2.5 h-2.5 bg-slate-800 rounded-full absolute right-8" />
-        </div>
+        {/* Notch details for Desktop Mockup view (never shown inside Telegram) */}
+        {!inTelegram && (
+          <div className="hidden sm:flex absolute top-0 left-0 right-0 h-6 bg-slate-900 z-50 items-center justify-center gap-1.5 rounded-t-xl">
+            <div className="w-12 h-1 bg-slate-800 rounded-full" />
+            <div className="w-2.5 h-2.5 bg-slate-800 rounded-full absolute right-8" />
+          </div>
+        )}
 
         {!isOnline && (
           <div 
@@ -859,8 +979,17 @@ export default function App() {
         )}
 
         {!isAuthenticated ? (
-          <AuthScreen
-            onLoginSuccess={handleLoginSuccess}
+          <BootSplash
+            label={inTelegram ? 'Verifying your Telegram account…' : 'Setting up your game session…'}
+            error={bootError}
+            hint={bootError ? 'SlapEarn needs Firebase to store your rewards. Retry, or contact support if this persists.' : null}
+            onRetry={() => {
+              sound.playSlap();
+              setBootError(null);
+              setIsAuthLoading(true);
+              bootstrapStartedRef.current = false;
+              void runAutoBootstrap();
+            }}
           />
         ) : (
           <>
@@ -1125,8 +1254,8 @@ export default function App() {
       {/* Real-Time Live Earnings Popup */}
       <LiveEarningsPopup />
 
-      {/* PWA Install Prompt Banner */}
-      <PWAInstallPrompt />
+      {/* PWA Install Prompt Banner — hidden inside Telegram, where installing is not possible/needed */}
+      {!inTelegram && <PWAInstallPrompt />}
 
       {/* Notifications Panel Modal */}
       <NotificationsPanel

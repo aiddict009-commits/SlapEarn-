@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -6,6 +7,8 @@ import { createServer as createViteServer } from "vite";
 import { processMyLeadPostback } from "./src/lib/myleadPostbackHandler.js";
 import { processGenericPostback } from "./src/lib/genericPostbackHandler.js";
 import { processCpxPostback } from "./src/lib/cpxPostbackHandler.js";
+import { createTelegramSession, createGuestSession } from "./src/lib/telegramSession.js";
+import { isTelegramConfigured, allowUnverifiedTelegramPayloads } from "./src/lib/telegramAuth.js";
 import { 
   getAdminDbInstance, 
   getAdminAuthInstance, 
@@ -25,9 +28,42 @@ import {
   AuthenticatedRequest 
 } from "./src/lib/serverFirebaseAdmin.js";
 
+/** Client IP resolver shared by the session bootstrap endpoints. */
+function getClientIp(req: express.Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket.remoteAddress || "unknown";
+}
+
+/** Optional `Authorization: Bearer <firebase id token>` extractor. */
+function extractBearerToken(req: express.Request): string | null {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return null;
+  const token = header.slice(7).trim();
+  return token.length > 0 ? token : null;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Telegram Mini App authentication status (formless login)
+  if (isTelegramConfigured()) {
+    console.log("[Telegram] Mini App authentication enabled — initData signatures are verified.");
+  } else if (allowUnverifiedTelegramPayloads()) {
+    console.warn(
+      "[Telegram] TELEGRAM_BOT_TOKEN is not set: running in UNSIGNED dev mode. " +
+        "Telegram identities are accepted without a signature check — set the BotFather token before going live."
+    );
+  }
+
+  // Firebase/Google background failures (e.g. NO_ADC_FOUND from gRPC) must never
+  // take the whole API down — endpoints report their own errors to the client.
+  process.on('unhandledRejection', (reason: any) => {
+    console.error('[Server] Unhandled promise rejection (kept alive):', reason?.message || reason);
+  });
 
   // =========================================================================
   // FIX 14: STRICT CORS & SECURITY HEADERS MIDDLEWARE
@@ -401,6 +437,88 @@ async function startServer() {
       });
     }
     res.json({ success: true });
+  });
+
+  // =========================================================================
+  // FORMLESS SESSION BOOTSTRAP — Telegram Mini App + instant guest
+  // =========================================================================
+  // These endpoints replace the e-mail/password sign-up flow: the player is
+  // never asked to register. They are intentionally NOT behind requireAuth
+  // (they create the session) and NOT behind requireAppCheck (a Mini App boot
+  // happens before App Check is initialised) — abuse protection comes from an
+  // IP rate limit plus Telegram's own HMAC signature.
+
+  // 1. Telegram Mini App `initData` / Login Widget payload -> Firebase session
+  app.post(["/api/auth/telegram", "/api/auth/telegram/"], async (req, res) => {
+    const clientIp = getClientIp(req);
+
+    if (!checkRateLimit(`telegram-auth:${clientIp}`, 30, 10 * 60 * 1000)) {
+      res.status(429).json({
+        ok: false,
+        error: "RATE_LIMITED",
+        message: "Too many session attempts. Please try again in a few minutes.",
+      });
+      return;
+    }
+
+    try {
+      const result = await createTelegramSession({
+        initData: typeof req.body?.initData === "string" ? req.body.initData : "",
+        widgetData:
+          req.body?.widget && typeof req.body.widget === "object" && !Array.isArray(req.body.widget)
+            ? (req.body.widget as Record<string, unknown>)
+            : null,
+        idToken: extractBearerToken(req) || (typeof req.body?.idToken === "string" ? req.body.idToken : null),
+        ip: clientIp,
+      });
+
+      if (result.ok === true) {
+        res.json(result);
+      } else {
+        res.status(result.status).json(result);
+      }
+    } catch (err: any) {
+      console.error("[Auth] Telegram session error:", err?.message || err);
+      res.status(500).json({
+        ok: false,
+        error: "TELEGRAM_AUTH_FAILED",
+        message: "Unexpected error while creating the Telegram session.",
+      });
+    }
+  });
+
+  // 2. Instant guest session for plain browsers (no Telegram, no form)
+  app.post(["/api/auth/guest-token", "/api/auth/guest-token/"], async (req, res) => {
+    const clientIp = getClientIp(req);
+
+    if (!checkRateLimit(`guest-auth:${clientIp}`, 30, 10 * 60 * 1000)) {
+      res.status(429).json({
+        ok: false,
+        error: "RATE_LIMITED",
+        message: "Too many session attempts. Please try again in a few minutes.",
+      });
+      return;
+    }
+
+    try {
+      const result = await createGuestSession({
+        guestId: typeof req.body?.guestId === "string" ? req.body.guestId : null,
+        idToken: extractBearerToken(req) || (typeof req.body?.idToken === "string" ? req.body.idToken : null),
+      });
+
+      if (result.ok === true) {
+        res.json(result);
+      } else {
+        res.status(result.status).json(result);
+      }
+    } catch (err: any) {
+      console.error("[Auth] Guest session error:", err?.message || err);
+      res.status(500).json({
+        ok: false,
+        error: "GUEST_SESSION_FAILED",
+        message: "Unexpected error while creating the guest session.",
+      });
+    }
   });
 
   // =========================================================================

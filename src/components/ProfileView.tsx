@@ -41,7 +41,7 @@ interface ProfileViewProps {
   updateStatsDirectly?: (newStats: Partial<UserStats>) => void;
   updateCoinsAndXp?: (coinReward: number, xpReward: number, category: Transaction['category'], title: string) => void;
   onOpenNotifications?: () => void;
-  authUser?: { email: string; username: string } | null;
+  authUser?: { email?: string; username: string; handle?: string; avatarUrl?: string; provider?: string } | null;
   isAdmin?: boolean;
   onOpenAdminHub?: () => void;
   onNavigateTab?: (tab: 'home' | 'earn' | 'slap' | 'wallet' | 'profile') => void;
@@ -152,9 +152,18 @@ export default function ProfileView({
             ? 'bg-gradient-to-r from-amber-400 via-yellow-200 to-amber-500 p-1.5 border-4 border-amber-500 shadow-[0_0_20px_rgba(251,191,36,0.8)] animate-pulse'
             : 'bg-[#FFD043] border-4 border-slate-900 shadow-[3.5px_4px_0px_0px_rgba(15,23,42,1)]'
         }`}>
-          {/* Smiling Face Mascot Avatar Circle */}
-          <div className="w-20 h-20 bg-amber-300 border-4 border-slate-900 rounded-full flex items-center justify-center relative shadow-inner">
-            <span className="text-4xl select-none leading-none">😊</span>
+          {/* Telegram profile photo when available, mascot face otherwise */}
+          <div className="w-20 h-20 bg-amber-300 border-4 border-slate-900 rounded-full flex items-center justify-center relative shadow-inner overflow-hidden">
+            {authUser?.avatarUrl ? (
+              <img
+                src={authUser.avatarUrl}
+                alt={authUser.username}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span className="text-4xl select-none leading-none">😊</span>
+            )}
           </div>
         </div>
         
@@ -166,9 +175,24 @@ export default function ProfileView({
         }`}>
           {authUser?.username || 'Slap Champ'}
         </h3>
-        {authUser?.email && (
+        {authUser?.handle ? (
+          <span className="text-[11px] font-bold text-slate-500 font-mono -mt-0.5">
+            @{authUser.handle}
+          </span>
+        ) : authUser?.email ? (
           <span className="text-[11px] font-bold text-slate-500 font-mono -mt-0.5">
             {authUser.email}
+          </span>
+        ) : (
+          <span className="text-[11px] font-bold text-slate-400 -mt-0.5">
+            {authUser?.provider === 'local' ? 'Offline session' : 'Guest player'}
+          </span>
+        )}
+
+        {/* Formless login badge — no password exists for this account */}
+        {authUser?.provider && authUser.provider !== 'local' && (
+          <span className="mt-1 px-2.5 py-0.5 bg-[#E8F7FF] border-2 border-slate-900 rounded-full text-[9px] font-black uppercase tracking-wider text-slate-700">
+            {authUser.provider === 'telegram' || authUser.provider === 'telegram_widget' ? 'Telegram login' : 'Guest login'} · no password
           </span>
         )}
 
@@ -390,18 +414,34 @@ export default function ProfileView({
           <ChevronRight className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
         </button>
 
-        {/* Log Out Item */}
-        <button
-          onClick={() => { sound.playSlap(); setIsLogoutOpen(true); }}
-          className="bg-white rounded-[24px] border-4 border-slate-900 p-3.5 flex items-center justify-between shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] active:scale-98 cursor-pointer transition-all w-full text-left"
-          id="action-logout-btn"
-        >
-          <div className="flex items-center gap-3">
-            <LogOut className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
-            <span className="font-black text-slate-950 text-[14px]">Log out</span>
+        {/* Automatic sessions (Telegram / guest) have nothing to log out of —
+            only a local-only session can be reset. */}
+        {authUser?.provider && authUser.provider !== 'local' ? (
+          <div
+            className="bg-emerald-50 rounded-[24px] border-4 border-slate-900 p-3.5 flex items-center gap-3 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] w-full"
+            id="action-session-info"
+          >
+            <ShieldCheck className="w-5 h-5 text-emerald-700 stroke-[2.5px] shrink-0" />
+            <div className="text-left">
+              <span className="font-black text-slate-950 text-[13px] block">Session saved automatically</span>
+              <span className="text-[11px] font-semibold text-slate-600 leading-tight block">
+                Progress is tied to {authUser.provider === 'telegram' || authUser.provider === 'telegram_widget' ? 'your Telegram account' : 'this device'} — no password to remember.
+              </span>
+            </div>
           </div>
-          <ChevronRight className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
-        </button>
+        ) : (
+          <button
+            onClick={() => { sound.playSlap(); setIsLogoutOpen(true); }}
+            className="bg-white rounded-[24px] border-4 border-slate-900 p-3.5 flex items-center justify-between shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] active:scale-98 cursor-pointer transition-all w-full text-left"
+            id="action-logout-btn"
+          >
+            <div className="flex items-center gap-3">
+              <LogOut className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
+              <span className="font-black text-slate-950 text-[14px]">Reset this device</span>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
+          </button>
+        )}
       </div>
 
       {/* --- MODAL SYSTEM --- */}
@@ -679,10 +719,10 @@ export default function ProfileView({
               </div>
 
               <h3 className="text-xl font-black text-slate-950 tracking-tight mb-2">
-                Log out of account?
+                Reset this session?
               </h3>
               <p className="text-slate-500 font-bold text-xs leading-relaxed px-2 mb-6">
-                Are you sure you want to log out? You can log back in anytime with your username or email.
+                This device is running an offline session. Resetting starts a fresh local profile — make sure you are back online first, or your local points are lost.
               </p>
 
               <div className="flex flex-col gap-2.5">
@@ -690,7 +730,7 @@ export default function ProfileView({
                   onClick={handleConfirmLogout}
                   className="w-full font-black text-xs py-3.5 rounded-2xl border-4 border-slate-900 bg-rose-500 hover:bg-rose-600 text-white shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95 cursor-pointer"
                 >
-                  Yes, Log Out
+                  Yes, Reset
                 </button>
                 <button
                   onClick={() => { sound.playSlap(); setIsLogoutOpen(false); }}

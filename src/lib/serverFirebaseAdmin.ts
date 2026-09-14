@@ -24,6 +24,45 @@ function getFirebaseConfig() {
   };
 }
 
+/**
+ * Cheap, side-effect-free check for Firebase Admin credentials.
+ *
+ * Without credentials the Admin SDK throws NO_ADC_FOUND from a *background*
+ * gRPC task, which would take the whole API process down. Session endpoints use
+ * this probe to fail fast (and let the client fall back to a guest session)
+ * instead of touching Firestore at all.
+ */
+export function hasAdminCredentials(): boolean {
+  // Manual override, useful on platforms with unusual credential plumbing
+  const override = (process.env.FIREBASE_ADMIN_CREDENTIALS || '').trim().toLowerCase();
+  if (override === 'available' || override === 'true') return true;
+  if (override === 'unavailable' || override === 'false') return false;
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return true;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT) return true;
+
+  // Managed runtimes provide Application Default Credentials automatically
+  if (process.env.K_SERVICE || process.env.FUNCTION_TARGET || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT) {
+    return true;
+  }
+
+  // Local development: service-account key file or `gcloud auth application-default login`
+  const candidates = [
+    path.join(process.cwd(), 'serviceAccountKey.json'),
+    path.join(process.cwd(), 'firebase-service-account.json'),
+    path.join(process.cwd(), 'service-account.json'),
+  ];
+  if (candidates.some((candidate) => fs.existsSync(candidate))) return true;
+
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (home) {
+    const adcPath = path.join(home, '.config', 'gcloud', 'application_default_credentials.json');
+    if (fs.existsSync(adcPath)) return true;
+  }
+
+  return false;
+}
+
 let cachedAdminApp: App | null = null;
 
 export function getAdminAppInstance(): App {
