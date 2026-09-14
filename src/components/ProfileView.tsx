@@ -28,6 +28,7 @@ import {
 import { sound } from '../utils/sound';
 import { UserStats, Transaction } from '../types';
 import { TITLE_TIERS, TitleTier, getTitleTierForLevel } from '../utils/titles';
+import { LegalModal, LegalTab } from './LegalModal';
 
 interface ProfileViewProps {
   stats: UserStats;
@@ -42,8 +43,6 @@ interface ProfileViewProps {
   updateCoinsAndXp?: (coinReward: number, xpReward: number, category: Transaction['category'], title: string) => void;
   onOpenNotifications?: () => void;
   authUser?: { email?: string; username: string; handle?: string; avatarUrl?: string; provider?: string } | null;
-  isAdmin?: boolean;
-  onOpenAdminHub?: () => void;
   onNavigateTab?: (tab: 'home' | 'earn' | 'slap' | 'wallet' | 'profile') => void;
   onOpenLegal?: (tab: 'terms' | 'privacy') => void;
 }
@@ -61,8 +60,6 @@ export default function ProfileView({
   updateCoinsAndXp,
   onOpenNotifications,
   authUser,
-  isAdmin = false,
-  onOpenAdminHub,
   onNavigateTab,
   onOpenLegal
 }: ProfileViewProps) {
@@ -72,6 +69,8 @@ export default function ProfileView({
   const [isSoundEffectsOpen, setIsSoundEffectsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [isLogoutOpen, setIsLogoutOpen] = useState<boolean>(false);
+  const [isLegalOpen, setIsLegalOpen] = useState<boolean>(false);
+  const [legalTab, setLegalTab] = useState<LegalTab>('terms');
 
   // Currently equipped title and frame (automatically unlocked and upgraded as player levels up)
   const currentLevelTier = getTitleTierForLevel(stats.level);
@@ -314,35 +313,6 @@ export default function ProfileView({
 
       {/* Action Settings Item Cards Stack */}
       <div className="flex flex-col gap-2.5" id="actions-stack-container">
-        {/* Admin Dashboard Hub Toggle Button - ONLY VISIBLE TO VERIFIED ADMINS VIA CUSTOM CLAIM */}
-        {isAdmin && (
-          <button
-            onClick={() => { 
-              sound.playSuccess(); 
-              onOpenAdminHub?.(); 
-            }}
-            className="bg-gradient-to-r from-[#FF3B77] via-pink-600 to-rose-600 rounded-[24px] border-4 border-slate-900 p-3.5 flex items-center justify-between shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] active:scale-98 cursor-pointer transition-all w-full text-left"
-            id="action-admin-dashboard-btn"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white border-2 border-slate-900 flex items-center justify-center font-black text-slate-950 text-base shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
-                ⚡
-              </div>
-              <div className="flex flex-col">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-black text-white text-[15px] tracking-tight">Admin Dashboard</span>
-                  <span className="bg-[#FFD043] text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded border border-slate-900 uppercase">
-                    MASTER
-                  </span>
-                </div>
-                <span className="text-pink-100 font-bold text-[10px]">
-                  Economy, Revenue, Users, Fraud & Game Controls
-                </span>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-white stroke-[3px]" />
-          </button>
-        )}
 
         {/* Notifications Item */}
         <button
@@ -396,13 +366,10 @@ export default function ProfileView({
 
         {/* Terms & Privacy Item */}
         <button
-          onClick={() => { 
-            sound.playSlap(); 
-            if (onOpenLegal) {
-              onOpenLegal('terms');
-            } else {
-              window.location.href = '/terms';
-            }
+          onClick={() => {
+            sound.playSlap();
+            setLegalTab('terms');
+            setIsLegalOpen(true);
           }}
           className="bg-white rounded-[24px] border-4 border-slate-900 p-3.5 flex items-center justify-between shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] active:scale-98 cursor-pointer transition-all w-full text-left"
           id="action-legal-btn"
@@ -443,6 +410,21 @@ export default function ProfileView({
           </button>
         )}
       </div>
+
+      {/* Scrollable Terms of Service / Privacy Policy sheet */}
+      <LegalModal
+        isOpen={isLegalOpen}
+        initialTab={legalTab}
+        onClose={() => setIsLegalOpen(false)}
+        onOpenFullPage={(tab) => {
+          setIsLegalOpen(false);
+          if (onOpenLegal) {
+            onOpenLegal(tab);
+          } else {
+            window.location.href = tab === 'terms' ? '/terms' : '/privacy';
+          }
+        }}
+      />
 
       {/* --- MODAL SYSTEM --- */}
       <AnimatePresence>

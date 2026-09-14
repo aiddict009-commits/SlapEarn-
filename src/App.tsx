@@ -62,7 +62,6 @@ import ProfileView from './components/ProfileView';
 import BootSplash from './components/BootSplash';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { NotificationsPanel, AppNotification } from './components/NotificationsPanel';
-import AdminDashboard from './components/AdminDashboard';
 import { AnimatedOdometer } from './components/AnimatedOdometer';
 import LiveEarningsPopup from './components/LiveEarningsPopup';
 import ProxyAlertOverlay from './components/ProxyAlertOverlay';
@@ -151,7 +150,6 @@ export default function App() {
   // Auth state driven by Firebase Auth & Cloud Save
   const [authUser, setAuthUser] = useState<SessionUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   // Session started without any cloud auth (no Firebase credentials reachable)
@@ -231,7 +229,6 @@ export default function App() {
     });
     setFirebaseUid(null);
     setIsLocalSession(true);
-    setIsAdmin(false);
     setIsAuthenticated(true);
     setIsAuthLoading(false);
     if (warnings.includes('LOCAL_ONLY_SESSION')) {
@@ -247,14 +244,6 @@ export default function App() {
     setIsAuthenticated(true);
     setIsLocalSession(false);
     setBootError(null);
-
-    // Verify Firebase Custom Claims ({ admin: true }) — legacy e-mail accounts refresh
-    try {
-      const tokenResult = await firebaseUser.getIdTokenResult(Boolean(firebaseUser.email));
-      setIsAdmin(Boolean(tokenResult?.claims?.admin));
-    } catch {
-      setIsAdmin(false);
-    }
 
     try {
       // Server-enforced device registration & multi-account limit check (Fix 5)
@@ -481,7 +470,6 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(() => sound.getMuteStatus());
   const [notifications, setNotifications] = useState<NotificationToast[]>([]);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState<boolean>(false);
-  const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState<boolean>(false);
   const [economyConfig, setEconomyConfig] = useState<EconomyConfig>(DEFAULT_ECONOMY_CONFIG);
 
   // Real-time Firestore subscription to global economyConfig rules
@@ -1056,7 +1044,7 @@ export default function App() {
             </header>
 
             {/* Maintenance Mode & Double SP Event Header Banners */}
-            {economyConfig.maintenanceMode && !isAdminDashboardOpen && (
+            {economyConfig.maintenanceMode && (
               <div className="bg-rose-600 text-white border-b-2 border-slate-900 px-3 py-1.5 font-black text-xs text-center flex items-center justify-center gap-2 shadow-sm z-30 shrink-0" id="maintenance-mode-banner">
                 <ShieldAlert className="w-4 h-4 animate-bounce" />
                 <span>MAINTENANCE MODE ACTIVE - Admin system changes in progress</span>
@@ -1137,10 +1125,6 @@ export default function App() {
                       updateCoinsAndXp={updateCoinsAndXp}
                       onOpenNotifications={() => setIsNotificationPanelOpen(true)}
                       authUser={authUser}
-                      isAdmin={isAdmin}
-                      onOpenAdminHub={() => {
-                        if (isAdmin) setIsAdminDashboardOpen(true);
-                      }}
                       onNavigateTab={(tab) => setActiveTab(tab)}
                       onOpenLegal={(tab) => {
                         sound.playSlap();
@@ -1264,16 +1248,6 @@ export default function App() {
         onNavigateTab={(tab) => setActiveTab(tab)}
         onUnreadCountChange={(count) => setUnreadNotificationsCount(count)}
       />
-
-      {/* Admin Dashboard Hub Overlay - ONLY accessible when isAdmin is verified */}
-      {isAdminDashboardOpen && isAdmin && (
-        <AdminDashboard
-          stats={stats}
-          updateStatsDirectly={updateStatsDirectly}
-          addNotification={addNotification}
-          onClose={() => setIsAdminDashboardOpen(false)}
-        />
-      )}
 
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ShieldCheck, FileText, Lock, ExternalLink, Mail, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { sound } from '../utils/sound';
@@ -9,15 +9,21 @@ interface LegalModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialTab?: LegalTab;
+  /** Optional: open the same document as a standalone page (/terms, /privacy) */
+  onOpenFullPage?: (tab: LegalTab) => void;
 }
 
-export function LegalModal({ isOpen, onClose, initialTab = 'terms' }: LegalModalProps) {
+export function LegalModal({ isOpen, onClose, initialTab = 'terms', onOpenFullPage }: LegalModalProps) {
   const [activeTab, setActiveTab] = useState<LegalTab>(initialTab);
 
-  if (!isOpen) return null;
+  // The sheet stays mounted so it can animate out — re-sync the tab each time it opens
+  useEffect(() => {
+    if (isOpen) setActiveTab(initialTab);
+  }, [isOpen, initialTab]);
 
   return (
     <AnimatePresence>
+      {isOpen && (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
         <motion.div
           initial={{ scale: 0.94, opacity: 0, y: 10 }}
@@ -25,6 +31,7 @@ export function LegalModal({ isOpen, onClose, initialTab = 'terms' }: LegalModal
           exit={{ scale: 0.94, opacity: 0, y: 10 }}
           transition={{ type: 'spring', damping: 25, stiffness: 350 }}
           className="w-full max-w-lg bg-white border-3 border-slate-900 rounded-3xl shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] overflow-hidden flex flex-col max-h-[90vh]"
+          style={{ maxHeight: '85dvh' }}
         >
           {/* Header */}
           <div className="bg-[#FFEB3B] border-b-3 border-slate-900 p-3.5 sm:p-4 flex items-center justify-between">
@@ -92,9 +99,9 @@ export function LegalModal({ isOpen, onClose, initialTab = 'terms' }: LegalModal
           </div>
 
           {/* Content Body */}
-          <div 
-            className="flex-1 overflow-y-auto p-4 sm:p-5 text-slate-800 space-y-4 text-xs sm:text-[13px] leading-relaxed overscroll-contain"
-            style={{ WebkitOverflowScrolling: 'touch' }}
+          <div
+            className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 text-slate-800 space-y-4 text-xs sm:text-[13px] leading-relaxed overscroll-contain"
+            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
           >
             {activeTab === 'terms' ? (
               <div className="space-y-4">
@@ -271,7 +278,21 @@ export function LegalModal({ isOpen, onClose, initialTab = 'terms' }: LegalModal
           </div>
 
           {/* Footer Action */}
-          <div className="bg-slate-50 border-t-2 border-slate-900 p-3 flex justify-end">
+          <div className="bg-slate-50 border-t-2 border-slate-900 p-3 flex items-center justify-between gap-2">
+            {onOpenFullPage ? (
+              <button
+                onClick={() => {
+                  sound.playSlap();
+                  onOpenFullPage(activeTab);
+                }}
+                className="flex items-center gap-1.5 font-black text-[11px] text-slate-600 hover:text-slate-950 cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open full page</span>
+              </button>
+            ) : (
+              <span />
+            )}
             <button
               onClick={() => {
                 sound.playSlap();
@@ -284,6 +305,7 @@ export function LegalModal({ isOpen, onClose, initialTab = 'terms' }: LegalModal
           </div>
         </motion.div>
       </div>
+      )}
     </AnimatePresence>
   );
 }

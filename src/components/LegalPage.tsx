@@ -17,19 +17,24 @@ export function LegalPage({ initialTab = 'terms', onNavigateHome }: LegalPagePro
     if (window.location.pathname !== targetPath) {
       window.history.pushState(null, '', targetPath);
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.getElementById('legal-page-container')?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [activeTab]);
 
   return (
-    <div 
-      className="fixed inset-0 z-50 h-[100dvh] w-full bg-[#0F172A] text-slate-900 flex flex-col items-center justify-start p-3 sm:p-6 font-sans overflow-y-auto overscroll-contain"
-      style={{ WebkitOverflowScrolling: 'touch' }}
+    <div
+      className="fixed inset-0 z-50 h-[100dvh] w-full bg-[#0F172A] text-slate-900 flex flex-col items-center justify-start p-3 sm:p-6 font-sans overflow-y-auto overflow-x-hidden overscroll-contain"
+      style={{
+        WebkitOverflowScrolling: 'touch',
+        touchAction: 'pan-y',
+        overscrollBehavior: 'contain',
+        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)',
+      }}
       id="legal-page-container"
     >
-      <div className="w-full max-w-2xl bg-[#FDFBF2] border-4 border-slate-900 rounded-[28px] sm:rounded-[36px] shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col my-4 shrink-0 mb-16">
+      <div className="w-full max-w-2xl bg-[#FDFBF2] border-4 border-slate-900 rounded-[28px] sm:rounded-[36px] shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col my-4 shrink-0 mb-16 overflow-hidden">
         
         {/* Top Header */}
-        <div className="bg-[#FFEB3B] border-b-4 border-slate-900 p-4 sm:p-5 flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-[#FFEB3B] border-b-4 border-slate-900 p-4 sm:p-5 flex items-center justify-between rounded-t-[24px] sm:rounded-t-[32px]">
           <div className="flex items-center gap-3">
             <button
               onClick={() => {
