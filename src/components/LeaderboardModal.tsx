@@ -3,6 +3,7 @@ import { Trophy, X, Users, Sparkles, Clock, AlertCircle, Shield, CheckCircle2 } 
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getWeeklyCompetitionStatus, WeeklyCompetitionStatus } from '../lib/leaderboardUtils';
+import { getServerNow } from '../utils/serverTime';
 
 interface LeaderboardUser {
   id: string;
@@ -39,46 +40,24 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<boolean>(false);
 
-  // Server time offset for trusted countdown
-  const [serverOffsetMs, setServerOffsetMs] = useState<number>(0);
-  const [compStatus, setCompStatus] = useState<WeeklyCompetitionStatus>(() => getWeeklyCompetitionStatus());
+  const [compStatus, setCompStatus] = useState<WeeklyCompetitionStatus>(() => getWeeklyCompetitionStatus(getServerNow()));
 
-  // Fetch trusted server time once on modal open to align clock
+  // Live timer tick every second aligned to authoritative server time
   useEffect(() => {
     if (!isOpen) return;
 
-    let isMounted = true;
-    fetch('/api/time')
-      ? fetch('/api/time')
-          .then((res) => res.json())
-          .then((data) => {
-            if (isMounted && data && typeof data.serverTime === 'number') {
-              const offset = data.serverTime - Date.now();
-              setServerOffsetMs(offset);
-              setCompStatus(getWeeklyCompetitionStatus(data.serverTime));
-            }
-          })
-          .catch((err) => {
-            console.warn('Leaderboard server time sync notice (using device clock fallback):', err);
-          })
-      : null;
+    const updateComp = () => setCompStatus(getWeeklyCompetitionStatus(getServerNow()));
+    updateComp();
+    const timer = setInterval(updateComp, 1000);
+    window.addEventListener('focus', updateComp);
+    document.addEventListener('visibilitychange', updateComp);
 
     return () => {
-      isMounted = false;
+      clearInterval(timer);
+      window.removeEventListener('focus', updateComp);
+      document.removeEventListener('visibilitychange', updateComp);
     };
   }, [isOpen]);
-
-  // Live timer tick every second without writing to Firestore
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const timer = setInterval(() => {
-      const trustedNow = Date.now() + serverOffsetMs;
-      setCompStatus(getWeeklyCompetitionStatus(trustedNow));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isOpen, serverOffsetMs]);
 
   // Subscribe to live Firestore users collection
   useEffect(() => {

@@ -1,66 +1,186 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow read/write for user documents and subcollections
-    match /{path=**}/transactions/{transactionId} {
-      allow read, write: if true;
+
+    // Helper functions for authentication and RBAC
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.admin == true;
+    }
+
+    // User Profile Documents & Subcollections
     match /users/{userId} {
-      allow read, write: if true;
+      // Authenticated users can read profiles (needed for leaderboards & user info)
+      allow read: if isAuthenticated();
 
+      // Client can only create their own initial profile during registration
+      allow create: if isOwner(userId);
+
+      // Client can ONLY update non-economy profile fields via explicit allow-list.
+      // All economy fields (coins, spBalance, energy, streak, lastCheckIn, totalEarned, xp, level, isRestricted, isBanned, dailyWithdrawnSp)
+      // are strictly denied for client writes and MUST be modified via backend server API / Admin SDK.
+      allow update: if (
+        isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName',
+          'profilePicture',
+          'photoURL',
+          'country',
+          'username',
+          'avatar',
+          'soundEnabled',
+          'hapticsEnabled',
+          'fcmToken',
+          'selectedHand',
+          'unlockedHands',
+          'equippedTitle',
+          'equippedFrame',
+          'bio',
+          'updatedAt'
+        ])
+      ) || isAdmin();
+
+      allow delete: if isAdmin();
+
+      // Transactions subcollection: Completely read-only for users, writes strictly denied for client (Admin SDK only)
       match /transactions/{transactionId} {
-        allow read, write: if true;
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isAdmin();
       }
 
+      // Notifications subcollection: Read-only for users, user can only update 'read' status flag
       match /notifications/{notificationId} {
-        allow read, write: if true;
+        allow read: if isOwner(userId) || isAdmin();
+        allow update: if (
+          isOwner(userId) && 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'updatedAt'])
+        ) || isAdmin();
+        allow create, delete: if isAdmin();
       }
     }
 
-    // Global announcements collection published by admin
-    match /announcements/{announcementId} {
-      allow read, write: if true;
-    }
-
+    // Withdrawals Collection: Client can read own withdrawals; client writes strictly denied (must call /api/withdrawals/request)
     match /withdrawals/{withdrawalId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
     }
 
+    // Withdrawal Audit Logs: Strictly Admin / Server Only (Fix 7)
+    match /withdrawal_audit_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Server-Side Anti-Cheat & Security Config: Strictly Admin / Server Only (Fix 6)
+    match /server_config/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Device Registrations / Fingerprints: Strictly Admin / Server Only (Fix 5)
+    match /device_registrations/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Security & Incident Logs: Strictly admin only
     match /security_logs/{logId} {
-      allow read, write: if true;
+      allow read, write: if isAdmin();
     }
 
+    // Global Announcements: Read by all authenticated users; writable ONLY by admin
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Security Rules Configuration: Read by clients, writable ONLY by admin
     match /security_config/{docId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
+    // Economy Configuration: Read by clients, writable ONLY by admin
     match /economy_config/{docId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
+    // System Documents: Read by clients, writable ONLY by admin
     match /system/{docId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
+    // Weekly Leaderboard Finalized Payouts
     match /weekly_leaderboard_payouts/{docId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
+    // Monthly Referral Finalized Payouts
     match /monthly_referral_payouts/{docId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
+    // Leaderboard Deduplication Records (Strictly Admin / Server Only)
     match /leaderboard_prize_dedup/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAdmin();
     }
 
     match /monthly_referral_prize_dedup/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAdmin();
     }
 
+    // External Postback Deduplication & Audit Records (Strictly Admin / Server Only)
     match /external_postbacks/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAdmin();
+    }
+
+    match /cpx_transactions/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /cpx_postbacks/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /mylead_transactions/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /torox_transactions/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /monlix_transactions/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Security Incidents Collection (Strictly Admin / Server Only - Fix 12)
+    match /security_incidents/{incidentId} {
+      allow read, write: if isAdmin();
+    }
+
+    // System Error Logs Collection (Strictly Admin / Server Only - Fix 9)
+    match /error_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Collection Group Queries for Transactions (e.g. Admin feed, audit)
+    match /{path=**}/transactions/{transactionId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Fallback: Deny everything else by default
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

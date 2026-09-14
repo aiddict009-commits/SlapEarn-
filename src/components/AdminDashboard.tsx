@@ -66,6 +66,7 @@ import {
   subscribeAnnouncementsFromFirestore,
   subscribeAllUsersFromFirestore,
   subscribeWithdrawalsFromFirestore,
+  subscribeAllTransactionsFromFirestore,
   updateWithdrawalStatusInFirestore,
   syncUserStatsToFirestore,
   addSecurityLogToFirestore,
@@ -73,7 +74,10 @@ import {
   saveSecurityRulesConfigToFirestore,
   subscribeSecurityRulesConfigFromFirestore,
   saveEconomyConfigToFirestore,
-  subscribeEconomyConfigFromFirestore
+  subscribeEconomyConfigFromFirestore,
+  updateAntiCheatConfigApi,
+  fetchSecurityIncidentsApi,
+  resetAllPlatformDataToZero
 } from '../lib/firebase';
 
 interface AdminDashboardProps {
@@ -119,83 +123,7 @@ interface MockUser {
   };
 }
 
-const INITIAL_MOCK_USERS: MockUser[] = [
-  {
-    id: 'usr-101',
-    username: 'SlapMaster99',
-    email: 'slapmaster@gmail.com',
-    country: 'United States 🇺🇸',
-    joinDate: '2026-06-12',
-    level: 14,
-    spBalance: 4250,
-    xp: 8900,
-    referrals: 12,
-    status: 'Active',
-    isRestricted: false,
-    riskLevel: 'Low',
-    activityTimeline: { adsWatched: 142, gamesPlayed: 88, slapsMade: 3200, surveysCompleted: 15, offerwallsCompleted: 8, withdrawalsCount: 3 }
-  },
-  {
-    id: 'usr-102',
-    username: 'EarnKing_2026',
-    email: 'earnking@yahoo.com',
-    country: 'Germany 🇩🇪',
-    joinDate: '2026-07-01',
-    level: 8,
-    spBalance: 12800,
-    xp: 4500,
-    referrals: 4,
-    status: 'Restricted',
-    isRestricted: true,
-    riskLevel: 'High',
-    activityTimeline: { adsWatched: 210, gamesPlayed: 14, slapsMade: 450, surveysCompleted: 2, offerwallsCompleted: 19, withdrawalsCount: 2 }
-  },
-  {
-    id: 'usr-103',
-    username: 'BotSlapper_X',
-    email: 'bot_slap@tempmail.org',
-    country: 'India 🇮🇳',
-    joinDate: '2026-07-25',
-    level: 22,
-    spBalance: 98000,
-    xp: 24000,
-    referrals: 85,
-    status: 'Frozen',
-    isRestricted: false,
-    riskLevel: 'High',
-    activityTimeline: { adsWatched: 950, gamesPlayed: 600, slapsMade: 45000, surveysCompleted: 0, offerwallsCompleted: 45, withdrawalsCount: 5 }
-  },
-  {
-    id: 'usr-104',
-    username: 'CasualGamer',
-    email: 'casual@hotmail.com',
-    country: 'Canada 🇨🇦',
-    joinDate: '2026-07-10',
-    level: 5,
-    spBalance: 1240,
-    xp: 1800,
-    referrals: 2,
-    status: 'Active',
-    isRestricted: false,
-    riskLevel: 'Low',
-    activityTimeline: { adsWatched: 28, gamesPlayed: 35, slapsMade: 920, surveysCompleted: 4, offerwallsCompleted: 1, withdrawalsCount: 1 }
-  },
-  {
-    id: 'usr-105',
-    username: 'CryptoHunter',
-    email: 'cryptohunter@proton.me',
-    country: 'United Kingdom 🇬🇧',
-    joinDate: '2026-07-18',
-    level: 11,
-    spBalance: 6500,
-    xp: 6200,
-    referrals: 9,
-    status: 'Active',
-    isRestricted: false,
-    riskLevel: 'Low',
-    activityTimeline: { adsWatched: 88, gamesPlayed: 52, slapsMade: 1850, surveysCompleted: 9, offerwallsCompleted: 5, withdrawalsCount: 2 }
-  }
-];
+const INITIAL_MOCK_USERS: MockUser[] = [];
 
 interface MockWithdrawal {
   id: string;
@@ -218,110 +146,9 @@ interface MockWithdrawal {
   };
 }
 
-const INITIAL_WITHDRAWALS: MockWithdrawal[] = [
-  {
-    id: 'wd-801',
-    userId: 'usr-102',
-    username: 'EarnKing_2026',
-    amountUsd: 10.00,
-    spDeducted: 10000,
-    method: 'USDT',
-    dateRequested: '10 mins ago',
-    accountAgeDays: 25,
-    reqsCompleted: true,
-    status: 'Pending',
-    fraudFlags: { accountAgeCheck: true, reqActivityCheck: true, noUnusualEarning: false, noDuplicateDevices: true }
-  },
-  {
-    id: 'wd-802',
-    userId: 'usr-103',
-    username: 'BotSlapper_X',
-    amountUsd: 50.00,
-    spDeducted: 50000,
-    method: 'USDT',
-    dateRequested: '1 hour ago',
-    accountAgeDays: 1,
-    reqsCompleted: false,
-    status: 'Under Review',
-    fraudFlags: { accountAgeCheck: false, reqActivityCheck: false, noUnusualEarning: false, noDuplicateDevices: false }
-  },
-  {
-    id: 'wd-803',
-    userId: 'usr-101',
-    username: 'SlapMaster99',
-    amountUsd: 5.00,
-    spDeducted: 5000,
-    method: 'Amazon Gift Card',
-    dateRequested: '3 hours ago',
-    accountAgeDays: 44,
-    reqsCompleted: true,
-    status: 'Pending',
-    fraudFlags: { accountAgeCheck: true, reqActivityCheck: true, noUnusualEarning: true, noDuplicateDevices: true }
-  }
-];
+const INITIAL_WITHDRAWALS: MockWithdrawal[] = [];
 
-const INITIAL_SECURITY_LOGS = [
-  {
-    id: 'sec-101',
-    userId: 'usr-103',
-    username: 'AutoSlapBot_9',
-    eventType: 'Autoclicker CPS',
-    severity: 'High',
-    details: 'Exceeded max CPS threshold: 42 clicks/sec detected on Golden Mole',
-    ipAddress: '198.51.100.42',
-    deviceId: 'dev-9921a',
-    timestamp: '2 mins ago',
-    status: 'Unresolved'
-  },
-  {
-    id: 'sec-102',
-    userId: 'usr-104',
-    username: 'VPN_Farmer_X',
-    eventType: 'VPN/Proxy Detected',
-    severity: 'Medium',
-    details: 'Datacenter proxy IP detected during MyLead offerwall completion',
-    ipAddress: '185.220.101.5',
-    deviceId: 'dev-1102b',
-    timestamp: '15 mins ago',
-    status: 'Auto-Blocked'
-  },
-  {
-    id: 'sec-103',
-    userId: 'usr-105',
-    username: 'MultiAcc_Rider',
-    eventType: 'Duplicate Device',
-    severity: 'High',
-    details: '3 accounts registered from identical hardware device fingerprint',
-    ipAddress: '203.0.113.88',
-    deviceId: 'dev-8871c',
-    timestamp: '1 hour ago',
-    status: 'Investigating'
-  },
-  {
-    id: 'sec-104',
-    userId: 'usr-106',
-    username: 'TimeWarp_User',
-    eventType: 'Clock Tampering',
-    severity: 'Critical',
-    details: 'Client device clock was fast-forwarded +48 hours to bypass daily streak cooldown',
-    ipAddress: '198.51.100.99',
-    deviceId: 'dev-4412d',
-    timestamp: '3 hours ago',
-    status: 'Unresolved'
-  }
-];
-
-
-
-const USER_ACTIVITY_TREND_DATA = [
-  { name: 'Mon', activeUsers: 620, newSignups: 45, spEarnedK: 125 },
-  { name: 'Tue', activeUsers: 680, newSignups: 52, spEarnedK: 142 },
-  { name: 'Wed', activeUsers: 710, newSignups: 48, spEarnedK: 138 },
-  { name: 'Thu', activeUsers: 790, newSignups: 64, spEarnedK: 165 },
-  { name: 'Fri', activeUsers: 840, newSignups: 78, spEarnedK: 189 },
-  { name: 'Sat', activeUsers: 910, newSignups: 92, spEarnedK: 210 },
-  { name: 'Sun', activeUsers: 880, newSignups: 85, spEarnedK: 198 },
-];
+const INITIAL_SECURITY_LOGS: any[] = [];
 
 export default function AdminDashboard({
   stats,
@@ -342,6 +169,7 @@ export default function AdminDashboard({
   // Withdrawals State
   const [withdrawals, setWithdrawals] = useState<MockWithdrawal[]>(INITIAL_WITHDRAWALS);
   const [withdrawalFilter, setWithdrawalFilter] = useState<string>('All');
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
 
   // Rewards & Economy Controls State
   const [economyConfig, setEconomyConfig] = useState({
@@ -551,6 +379,36 @@ export default function AdminDashboard({
 
   // Content Management State
   const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [showResetModal, setShowResetModal] = useState<boolean>(false);
+  const [isResettingData, setIsResettingData] = useState<boolean>(false);
+  const [resetConfirmationText, setResetConfirmationText] = useState<string>('');
+
+  const handleResetPlatformData = async () => {
+    if (resetConfirmationText.trim().toUpperCase() !== 'RESET') {
+      addNotification('Confirmation Required', 'Please type RESET to confirm factory reset.', 'info');
+      return;
+    }
+
+    setIsResettingData(true);
+    try {
+      const res = await resetAllPlatformDataToZero();
+      if (res.success) {
+        setUsers([]);
+        setWithdrawals([]);
+        setAllTransactions([]);
+        setShowResetModal(false);
+        setResetConfirmationText('');
+        addNotification('Platform Reset Completed', 'All users, transactions, withdrawals, and metrics have been reset to zero.', 'success');
+      } else {
+        addNotification('Reset Notice', res.message || 'Failed to reset platform data.', 'info');
+      }
+    } catch (e: any) {
+      addNotification('Reset Error', e.message || 'An error occurred resetting platform data.', 'info');
+    } finally {
+      setIsResettingData(false);
+    }
+  };
+
   const [announcementTitle, setAnnouncementTitle] = useState('📢 Double SP Weekend is Live!');
   const [announcementText, setAnnouncementText] = useState('Slap moles & complete surveys for 2x SP Rewards! Limited time event!');
   const [announcementCategory, setAnnouncementCategory] = useState<'promo' | 'reward' | 'system' | 'security'>('promo');
@@ -574,6 +432,11 @@ export default function AdminDashboard({
   const [securityEventTypeFilter, setSecurityEventTypeFilter] = useState<string>('All');
   const [isSavingSecurityConfig, setIsSavingSecurityConfig] = useState<boolean>(false);
 
+  // Platform Reset States (Wipe All to Zero)
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isResettingPlatform, setIsResettingPlatform] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+
   // Subscribe to Live Announcements, Users, Withdrawals, and Security Logs from Firestore via real-time listeners (onSnapshot)
   React.useEffect(() => {
     const unsubAnn = subscribeAnnouncementsFromFirestore((announcements) => {
@@ -582,74 +445,69 @@ export default function AdminDashboard({
 
     // Real-time listener for all user signups and profile updates in Firestore
     const unsubUsers = subscribeAllUsersFromFirestore((firestoreUsers) => {
-      if (!firestoreUsers || firestoreUsers.length === 0) return;
-      setUsers((prevUsers) => {
-        const converted: MockUser[] = firestoreUsers.map((fu) => ({
-          id: fu.id || ('usr-' + Math.random().toString(36).substring(2, 7)),
-          username: fu.username || 'SlapUser',
-          email: fu.email || `${fu.username?.toLowerCase() || 'user'}@slapearn.app`,
-          country: 'Global 🌐',
-          joinDate: fu.lastActiveDate ? fu.lastActiveDate.split('T')[0] : new Date().toISOString().split('T')[0],
-          level: fu.level || 1,
-          spBalance: fu.coins !== undefined ? fu.coins : 5000,
-          xp: fu.xp || 0,
-          referrals: fu.referrals || 0,
-          status: fu.isRestricted ? 'Restricted' : ((fu.status as any) || 'Active'),
-          isRestricted: fu.isRestricted ?? (fu.status === 'Restricted'),
-          riskLevel: (fu.isRestricted || fu.status === 'Frozen' || fu.status === 'Restricted') ? 'High' : 'Low',
-          activityTimeline: {
-            adsWatched: fu.totalAdsWatchedLifetime || 0,
-            gamesPlayed: fu.daysActive || 1,
-            slapsMade: fu.slapsToday || 0,
-            surveysCompleted: 0,
-            offerwallsCompleted: 0,
-            withdrawalsCount: fu.referralsForCurrentWithdrawal || 0
-          }
-        }));
-
-        const mergedMap = new Map<string, MockUser>();
-        prevUsers.forEach((u) => mergedMap.set(u.id, u));
-        converted.forEach((u) => mergedMap.set(u.id, u));
-        return Array.from(mergedMap.values());
-      });
+      if (!firestoreUsers) {
+        setUsers([]);
+        return;
+      }
+      const converted: MockUser[] = firestoreUsers.map((fu) => ({
+        id: fu.id || ('usr-' + Math.random().toString(36).substring(2, 7)),
+        username: fu.username || 'SlapUser',
+        email: fu.email || `${fu.username?.toLowerCase() || 'user'}@slapearn.app`,
+        country: 'Global 🌐',
+        joinDate: fu.lastActiveDate ? fu.lastActiveDate.split('T')[0] : new Date().toISOString().split('T')[0],
+        level: fu.level || 1,
+        spBalance: typeof fu.coins === 'number' ? fu.coins : 0,
+        xp: fu.xp || 0,
+        referrals: fu.referrals || 0,
+        status: fu.isRestricted ? 'Restricted' : ((fu.status as any) || 'Active'),
+        isRestricted: fu.isRestricted ?? (fu.status === 'Restricted'),
+        riskLevel: (fu.isRestricted || fu.status === 'Frozen' || fu.status === 'Restricted') ? 'High' : 'Low',
+        activityTimeline: {
+          adsWatched: fu.totalAdsWatchedLifetime || 0,
+          gamesPlayed: fu.daysActive || 1,
+          slapsMade: fu.slapsToday || 0,
+          surveysCompleted: fu.surveysCompletedToday || 0,
+          offerwallsCompleted: fu.offersCompletedToday || 0,
+          withdrawalsCount: fu.referralsForCurrentWithdrawal || 0
+        }
+      }));
+      setUsers(converted);
     });
 
     // Real-time listener for all withdrawal requests in Firestore
     const unsubWithdrawals = subscribeWithdrawalsFromFirestore((cloudWithdrawals) => {
-      if (!cloudWithdrawals) return;
-      setWithdrawals((prevW) => {
-        const converted: MockWithdrawal[] = cloudWithdrawals.map((cw) => ({
-          id: cw.id,
-          userId: cw.userId || 'usr-101',
-          username: cw.username || 'SlapUser',
-          amountUsd: Number(cw.amountUsd) || 0,
-          spDeducted: Number(cw.spDeducted) || 0,
-          method: cw.method || 'PayPal',
-          payoutDestination: cw.payoutDestination || '',
-          dateRequested: cw.dateRequested || (cw.createdAt ? new Date(cw.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'),
-          createdAt: cw.createdAt || Date.now(),
-          accountAgeDays: cw.accountAgeDays || 1,
-          reqsCompleted: true,
-          status: cw.status || 'Pending',
-          fraudFlags: cw.fraudFlags || {
-            accountAgeCheck: true,
-            reqActivityCheck: true,
-            noUnusualEarning: true,
-            noDuplicateDevices: true
-          }
-        }));
+      if (!cloudWithdrawals) {
+        setWithdrawals([]);
+        return;
+      }
+      const converted: MockWithdrawal[] = cloudWithdrawals.map((cw) => ({
+        id: cw.id,
+        userId: cw.userId || 'usr-101',
+        username: cw.username || 'SlapUser',
+        amountUsd: Number(cw.amountUsd) || 0,
+        spDeducted: Number(cw.spDeducted) || 0,
+        method: cw.method || 'PayPal',
+        payoutDestination: cw.payoutDestination || '',
+        dateRequested: cw.dateRequested || (cw.createdAt ? new Date(cw.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'),
+        createdAt: cw.createdAt || Date.now(),
+        accountAgeDays: cw.accountAgeDays || 1,
+        reqsCompleted: true,
+        status: cw.status || 'Pending',
+        fraudFlags: cw.fraudFlags || {
+          accountAgeCheck: true,
+          reqActivityCheck: true,
+          noUnusualEarning: true,
+          noDuplicateDevices: true
+        }
+      }));
+      setWithdrawals(converted);
+    });
 
-        const mergedMap = new Map<string, MockWithdrawal>();
-        // Add live cloud withdrawals FIRST so new withdrawals sit right at top!
-        converted.forEach((w) => mergedMap.set(w.id, w));
-        // Add mock default withdrawals that aren't in Firestore
-        prevW.forEach((w) => {
-          if (!mergedMap.has(w.id)) {
-            mergedMap.set(w.id, w);
-          }
-        });
-        return Array.from(mergedMap.values());
-      });
+    // Real-time listener for all user transactions (Surveys & Offers for Revenue reporting)
+    const unsubTransactions = subscribeAllTransactionsFromFirestore((txs) => {
+      if (txs) {
+        setAllTransactions(txs);
+      }
     });
 
     // Local event listener for instantaneous UI update upon withdrawal creation
@@ -699,6 +557,35 @@ export default function AdminDashboard({
       });
     });
 
+    // Load server-only security incidents (Fix 12)
+    fetchSecurityIncidentsApi()
+      .then((incidents) => {
+        if (incidents && incidents.length > 0) {
+          setSecurityLogs((prevLogs) => {
+            const mergedMap = new Map<string, any>();
+            prevLogs.forEach((l) => mergedMap.set(l.id, l));
+            incidents.forEach((inc: any) => {
+              mergedMap.set(inc.id, {
+                id: inc.id,
+                userId: inc.userId || 'system',
+                username: inc.userId || 'User',
+                eventType: inc.type || 'Security Alert',
+                severity: (inc.severity ? inc.severity.charAt(0).toUpperCase() + inc.severity.slice(1) : 'Medium'),
+                details: inc.details || inc.reason || 'Security incident recorded',
+                ipAddress: inc.ipAddress || inc.ip || 'Protected/Server',
+                deviceId: inc.deviceId || 'N/A',
+                timestamp: inc.createdAt ? new Date(inc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
+                status: inc.resolved ? 'Resolved' : 'Unresolved',
+              });
+            });
+            return Array.from(mergedMap.values());
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn('Notice loading security incidents:', err);
+      });
+
     // Real-time listener for Security Rules Config in Firestore
     const unsubSecConfig = subscribeSecurityRulesConfigFromFirestore((cloudConfig) => {
       if (cloudConfig) {
@@ -726,6 +613,7 @@ export default function AdminDashboard({
       unsubAnn();
       unsubUsers();
       unsubWithdrawals();
+      unsubTransactions();
       unsubSecLogs();
       unsubSecConfig();
       unsubEconConfig();
@@ -761,10 +649,16 @@ export default function AdminDashboard({
   // Handlers for Security Actions
   const handleSaveSecurityConfig = async () => {
     setIsSavingSecurityConfig(true);
-    await saveSecurityRulesConfigToFirestore(securityRulesConfig);
-    setIsSavingSecurityConfig(false);
+    try {
+      await saveSecurityRulesConfigToFirestore(securityRulesConfig);
+      await updateAntiCheatConfigApi(securityRulesConfig);
+    } catch (err) {
+      console.warn('[Admin] Security config sync notice:', err);
+    } finally {
+      setIsSavingSecurityConfig(false);
+    }
     sound.playSuccess();
-    addNotification('Security Rules Saved', 'Fraud sentinel thresholds & rules updated in Firestore real-time!', 'success');
+    addNotification('Security Rules Saved', 'Fraud sentinel thresholds & server anti-cheat updated in real-time!', 'success');
   };
 
   // Handlers for Economy Actions
@@ -914,6 +808,47 @@ export default function AdminDashboard({
     addNotification('Withdrawal Updated', `Withdrawal ${id} marked as ${action}`, 'success');
   };
 
+  const handleResetAllPlatformData = async () => {
+    if (resetConfirmText.trim() !== 'RESET') {
+      addNotification('Confirmation Required', 'Please type RESET into the box to confirm.', 'info');
+      return;
+    }
+
+    setIsResettingPlatform(true);
+    try {
+      const res = await resetAllPlatformDataToZero();
+      
+      // Wipe local state immediately to 0
+      setUsers([]);
+      setWithdrawals([]);
+      setAllTransactions([]);
+      setSecurityLogs([]);
+      setLiveAnnouncementsHistory([]);
+      setWeeklyLeaderboardHistory([]);
+      setMonthlyLeaderboardHistory([]);
+
+      sound.playSuccess();
+      addNotification(
+        'Platform Reset Complete',
+        res.message || 'All users, revenue, transactions, withdrawals, and metrics reset to 0.',
+        'success'
+      );
+      setIsResetModalOpen(false);
+      setResetConfirmText('');
+    } catch (err: any) {
+      console.error('Failed to reset platform data:', err);
+      addNotification('Reset Notice', 'Platform states reset to 0 in dashboard session.', 'info');
+      setUsers([]);
+      setWithdrawals([]);
+      setAllTransactions([]);
+      setSecurityLogs([]);
+      setIsResetModalOpen(false);
+      setResetConfirmText('');
+    } finally {
+      setIsResettingPlatform(false);
+    }
+  };
+
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
       u.username.toLowerCase().includes(userSearch.toLowerCase()) ||
@@ -940,6 +875,64 @@ export default function AdminDashboard({
 
   const totalSpByAllUsers = users.reduce((acc, u) => acc + (u.spBalance || 0), 0);
   const totalLifetimeWithdrawalsSp = withdrawals.reduce((acc, w) => acc + (w.spDeducted || (w.amountUsd ? Math.round(w.amountUsd * 10000) : 0)), 0);
+
+  // Every SP earned from surveys and offers recorded directly into survey revenue and offer revenue
+  const surveyTransactions = allTransactions.filter(
+    (t) => t.type === 'earn' && (
+      t.category === 'Survey' ||
+      t.category === 'Pollfish' ||
+      t.category === 'InBrain' ||
+      t.category === 'CPX' ||
+      t.category === 'BitLabs' ||
+      t.title.toLowerCase().includes('survey') ||
+      (t.description && t.description.toLowerCase().includes('survey'))
+    )
+  );
+
+  const offerTransactions = allTransactions.filter(
+    (t) => t.type === 'earn' && (
+      t.category === 'Offerwall' ||
+      t.category === 'Offer' ||
+      t.category === 'MyLead' ||
+      t.category === 'Torox' ||
+      t.category === 'AdGem' ||
+      t.category === 'AdGate' ||
+      t.category === 'RevU' ||
+      t.title.toLowerCase().includes('offer') ||
+      (t.description && t.description.toLowerCase().includes('offer'))
+    )
+  );
+
+  const totalSurveySpEarned = surveyTransactions.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
+  const totalOfferSpEarned = offerTransactions.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
+
+  // Conversion to USD Revenue based on SP economy (10,000 SP = $1.00 USD)
+  const surveyRevenueUsd = totalSurveySpEarned / 10000;
+  const offerRevenueUsd = totalOfferSpEarned / 10000;
+  const totalCombinedRevenueUsd = surveyRevenueUsd + offerRevenueUsd;
+  const totalCombinedSpEarned = totalSurveySpEarned + totalOfferSpEarned;
+
+  // Total Paid to Users from cleared/approved withdrawals
+  const totalPaidToUsersUsd = withdrawals
+    .filter((w) => w.status === 'Approved' || w.status === 'Completed' || (w.status as any) === 'completed' || (w.status as any) === 'approved')
+    .reduce((acc, w) => acc + (w.amountUsd || 0), 0);
+
+  const estimatedProfitUsd = Math.max(0, totalCombinedRevenueUsd - totalPaidToUsersUsd);
+  const profitMarginPercent = totalCombinedRevenueUsd > 0 ? Math.round((estimatedProfitUsd / totalCombinedRevenueUsd) * 100) : 0;
+
+  const activityTrendData = React.useMemo(() => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const todayIdx = (new Date().getDay() + 6) % 7;
+    return days.map((day, idx) => {
+      const isToday = idx === todayIdx;
+      return {
+        name: day,
+        activeUsers: isToday ? activeUsersCount : 0,
+        newSignups: isToday ? users.length : 0,
+        spEarnedK: isToday ? Math.round(totalSpByAllUsers / 1000) : 0
+      };
+    });
+  }, [activeUsersCount, users.length, totalSpByAllUsers]);
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex flex-col font-sans text-slate-100 overflow-hidden selection:bg-[#FF3B77] selection:text-white" id="admin-dashboard-root">
@@ -1188,39 +1181,34 @@ export default function AdminDashboard({
               <div>
                 <h2 className="text-sm font-black text-slate-300 uppercase tracking-wider mb-2.5 flex items-center gap-2">
                   <DollarSign className="w-4 h-4 text-emerald-400" />
-                  <span>Money Overview (30 Days)</span>
+                  <span>Money Overview</span>
                 </h2>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                   <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Estimated Ad Revenue</span>
-                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">$1,850.00</div>
-                    <span className="text-[9px] text-slate-400">Adsterra & MyBid Networks</span>
-                  </div>
-                  <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Offerwall Revenue</span>
-                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">$2,420.00</div>
-                    <span className="text-[9px] text-slate-400">MyLead Offerwall</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Offer Revenue</span>
+                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">${offerRevenueUsd.toFixed(2)}</div>
+                    <span className="text-[9px] text-slate-400">{totalOfferSpEarned.toLocaleString()} SP earned</span>
                   </div>
                   <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5">
                     <span className="text-[10px] text-slate-400 font-bold uppercase">Survey Revenue</span>
-                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">$980.00</div>
-                    <span className="text-[9px] text-slate-400">Pollfish & InBrain</span>
+                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">${surveyRevenueUsd.toFixed(2)}</div>
+                    <span className="text-[9px] text-slate-400">{totalSurveySpEarned.toLocaleString()} SP earned</span>
                   </div>
                   <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-3.5 bg-emerald-950/20">
                     <span className="text-[10px] text-emerald-300 font-bold uppercase">Total Revenue</span>
-                    <div className="text-xl font-black text-emerald-300 font-mono mt-1">$5,250.00</div>
-                    <span className="text-[9px] text-emerald-400/80">Gross earnings</span>
+                    <div className="text-xl font-black text-emerald-300 font-mono mt-1">${totalCombinedRevenueUsd.toFixed(2)}</div>
+                    <span className="text-[9px] text-emerald-400/80">{totalCombinedSpEarned.toLocaleString()} Total SP</span>
                   </div>
                   <div className="bg-slate-900/90 border border-rose-500/30 rounded-2xl p-3.5 bg-rose-950/20">
                     <span className="text-[10px] text-rose-300 font-bold uppercase">Total Paid to Users</span>
-                    <div className="text-xl font-black text-rose-300 font-mono mt-1">$2,100.00</div>
+                    <div className="text-xl font-black text-rose-300 font-mono mt-1">${totalPaidToUsersUsd.toFixed(2)}</div>
                     <span className="text-[9px] text-rose-400/80">Redemptions cleared</span>
                   </div>
                   <div className="bg-gradient-to-br from-amber-500/20 to-yellow-600/20 border-2 border-[#FFD043] rounded-2xl p-3.5">
                     <span className="text-[10px] text-[#FFD043] font-black uppercase">Estimated Profit</span>
-                    <div className="text-xl font-black text-[#FFD043] font-mono mt-1">$3,150.00</div>
-                    <span className="text-[9px] text-amber-200 font-bold">60% Profit Margin</span>
+                    <div className="text-xl font-black text-[#FFD043] font-mono mt-1">${estimatedProfitUsd.toFixed(2)}</div>
+                    <span className="text-[9px] text-amber-200 font-bold">{profitMarginPercent}% Margin</span>
                   </div>
                 </div>
               </div>
@@ -1239,7 +1227,7 @@ export default function AdminDashboard({
                         <span>Suspicious Accounts Detected</span>
                       </div>
                       <p className="text-xs text-slate-300 font-semibold mt-1">
-                        3 accounts flagged for potential autoclicker or speedhack activity.
+                        {users.filter(u => u.status === 'Suspicious' || u.status === 'Frozen' || u.isRestricted).length} accounts flagged for potential security or risk review.
                       </p>
                     </div>
                     <button
@@ -1257,7 +1245,7 @@ export default function AdminDashboard({
                         <span>Withdrawal Requests Waiting</span>
                       </div>
                       <p className="text-xs text-slate-300 font-semibold mt-1">
-                        14 payout requests pending manual review before processing.
+                        {pendingWithdrawalsCount} payout requests pending manual review before processing.
                       </p>
                     </div>
                     <button
@@ -1275,7 +1263,7 @@ export default function AdminDashboard({
                         <span>System Health Normal</span>
                       </div>
                       <p className="text-xs text-slate-300 font-semibold mt-1">
-                        All reward callbacks, Firestore synchronization, and ad networks operating at 100% uptime.
+                        All reward callbacks, Firestore synchronization, and verification operating normally.
                       </p>
                     </div>
                     <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[9px] font-bold uppercase border border-emerald-500/30">
@@ -1299,7 +1287,7 @@ export default function AdminDashboard({
                   </div>
                   <div className="text-xl font-black text-white font-mono">{users.length.toLocaleString()}</div>
                   <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                    <ArrowUpRight className="w-3 h-3" /> +12% this week
+                    <ArrowUpRight className="w-3 h-3" /> Live Firestore
                   </span>
                 </div>
 
@@ -1309,9 +1297,9 @@ export default function AdminDashboard({
                     <Activity className="w-4 h-4 text-[#00D09E]" />
                   </div>
                   <div className="text-xl font-black text-[#00D09E] font-mono">
-                    {users.filter(u => u.status === 'Active').length * 14 + 842}
+                    {activeUsersCount}
                   </div>
-                  <span className="text-[10px] text-slate-400 font-bold">68% Daily Active Rate</span>
+                  <span className="text-[10px] text-slate-400 font-bold">{users.length > 0 ? Math.round((activeUsersCount / users.length) * 100) : 0}% Active Ratio</span>
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-1">
@@ -1331,10 +1319,10 @@ export default function AdminDashboard({
                     <Coins className="w-4 h-4 text-[#FFD043]" />
                   </div>
                   <div className="text-xl font-black text-[#FFD043] font-mono">
-                    {users.reduce((acc, u) => acc + u.spBalance, 0).toLocaleString()} SP
+                    {users.reduce((acc, u) => acc + (u.spBalance || 0), 0).toLocaleString()} SP
                   </div>
                   <span className="text-[10px] text-amber-300 font-bold">
-                    Est. ${(users.reduce((acc, u) => acc + u.spBalance, 0) / 10000).toFixed(2)} USD
+                    Est. ${(users.reduce((acc, u) => acc + (u.spBalance || 0), 0) / 10000).toFixed(2)} USD
                   </span>
                 </div>
               </div>
@@ -1356,7 +1344,7 @@ export default function AdminDashboard({
 
                 <div className="h-52 w-full pt-1">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={USER_ACTIVITY_TREND_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <BarChart data={activityTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                       <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} />
                       <YAxis stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} />
@@ -3788,12 +3776,104 @@ export default function AdminDashboard({
                       {maintenanceMode ? 'ACTIVE' : 'INACTIVE'}
                     </button>
                   </div>
+
+                  {/* Reset Platform Data Card */}
+                  <div className="bg-rose-950/20 border border-rose-900/50 p-4 rounded-2xl space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-1.5 text-rose-400 font-black text-xs uppercase">
+                          <Trash2 className="w-4 h-4" />
+                          <span>Reset Platform Data to Zero</span>
+                        </div>
+                        <p className="text-[11px] text-rose-300/80 mt-1 leading-relaxed">
+                          Permanently wipes all users, revenue records, transaction logs, withdrawal requests, and security logs from Firestore and resets all admin dashboard metrics to 0.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setResetConfirmationText('');
+                          setShowResetModal(true);
+                        }}
+                        className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow-lg transition-all shrink-0 cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Reset to Zero</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </main>
       </div>
+
+      {/* FACTORY RESET CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {showResetModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border-2 border-rose-600 rounded-2xl max-w-md w-full p-5 space-y-4 text-white shadow-2xl"
+            >
+              <div className="flex items-center gap-2 text-rose-500">
+                <AlertTriangle className="w-6 h-6 shrink-0" />
+                <h3 className="text-base font-black uppercase tracking-wider">Confirm Platform Reset</h3>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed">
+                This action will delete all registered users, reset all user balances and revenue counters to <span className="font-bold text-white font-mono">0</span>, clear withdrawal queues, and wipe transactions from Firestore.
+              </p>
+
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                <label className="text-[11px] text-slate-400 font-bold uppercase block">
+                  Type <span className="text-rose-400 font-mono font-black">RESET</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={resetConfirmationText}
+                  onChange={(e) => setResetConfirmationText(e.target.value)}
+                  placeholder="RESET"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono font-bold text-white uppercase focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setShowResetModal(false)}
+                  disabled={isResettingData}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleResetPlatformData}
+                  disabled={isResettingData || resetConfirmationText.trim().toUpperCase() !== 'RESET'}
+                  className={`px-4 py-2 font-black text-xs rounded-xl flex items-center gap-1.5 transition-all ${
+                    resetConfirmationText.trim().toUpperCase() === 'RESET' && !isResettingData
+                      ? 'bg-rose-600 hover:bg-rose-500 text-white cursor-pointer shadow-lg'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  {isResettingData ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Resetting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Permanently Reset</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

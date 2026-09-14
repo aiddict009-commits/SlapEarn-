@@ -48,9 +48,21 @@ window.addEventListener('unhandledrejection', (event) => {
 // Register PWA Service Worker for offline support & app installability
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
+    // Delete legacy cache storages
+    if ('caches' in window) {
+      caches.keys().then((names) => {
+        names.forEach((name) => {
+          if (name === 'slapearn-cache-v1') {
+            caches.delete(name);
+          }
+        });
+      });
+    }
+
     navigator.serviceWorker.register('/sw.js').then(
       (registration) => {
-        console.log('[PWA] ServiceWorker registered with scope:', registration.scope);
+        registration.update();
+        console.log('[PWA] ServiceWorker registered and updated with scope:', registration.scope);
       },
       (err) => {
         console.log('[PWA] ServiceWorker registration failed:', err);

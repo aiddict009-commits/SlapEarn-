@@ -1,31 +1,21 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { 
   Zap, 
-  ShieldCheck, 
   Gift, 
   Sparkles, 
-  Users, 
   ArrowRight, 
-  TrendingUp, 
   CheckCircle2, 
   ChevronDown, 
-  Globe2, 
-  Smartphone, 
   Lock, 
   HelpCircle, 
-  DollarSign, 
-  PlayCircle, 
-  FileText, 
-  Award, 
   LogIn, 
   UserPlus, 
-  Clock, 
-  Activity,
-  Flame,
-  CreditCard
+  Wallet,
+  Coins,
+  ShieldCheck
 } from 'lucide-react';
 import { sound } from '../utils/sound';
+import LegalModal, { LegalTab } from './LegalModal';
 
 interface LandingPageProps {
   onGetStarted: (mode: 'signup' | 'login') => void;
@@ -33,6 +23,8 @@ interface LandingPageProps {
 
 export default function LandingPage({ onGetStarted }: LandingPageProps) {
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
+  const [isLegalOpen, setIsLegalOpen] = useState(false);
+  const [legalTab, setLegalTab] = useState<LegalTab>('terms');
 
   const toggleFaq = (index: number) => {
     sound.playSlap();
@@ -44,92 +36,71 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
     onGetStarted(mode);
   };
 
-  const stats = [
-    { label: 'Active Slappers', value: '142,500+', icon: Users, color: 'text-amber-500' },
-    { label: 'Total Paid Out', value: 'R 850,000+', icon: TrendingUp, color: 'text-emerald-500' },
-    { label: 'Avg Payout Time', value: '< 15 Mins', icon: Clock, color: 'text-purple-500' },
-    { label: 'Security Score', value: '99.9%', icon: ShieldCheck, color: 'text-blue-500' },
-  ];
-
-  const features = [
+  const highlights = [
     {
       icon: Zap,
-      title: 'Slap-to-Earn Gameplay',
-      description: 'Tap & slap animated characters to earn Slap Points (SP) instantly. Unlock powerful hands, multipliers, and critical hit bonuses.',
-      badge: 'Game Mode',
-      color: 'bg-amber-100 text-amber-900 border-amber-900',
-      iconColor: 'text-amber-600'
+      title: 'Tap, Slap & Level Up',
+      description: 'Slap animated boss characters, build up slap multipliers, trigger critical hits, and rack up Slap Points (SP) every second.',
+      tag: 'Gameplay',
+      badgeColor: 'bg-amber-100 text-amber-900 border-amber-900',
+      iconBg: 'bg-amber-400 text-slate-950'
     },
     {
-      icon: FileText,
-      title: 'High-Yield Paid Surveys',
-      description: 'Complete quick opinion surveys from top research partners (CPX Research, BitLabs, Pollfish) and earn up to 5,000 SP per survey.',
-      badge: 'High Pay',
-      color: 'bg-purple-100 text-purple-900 border-purple-900',
-      iconColor: 'text-purple-600'
+      icon: Sparkles,
+      title: 'Complete Sponsored Tasks',
+      description: 'Boost your balance fast with partner offerwalls, quick surveys, daily check-in mystery chests, and rewarded short clips.',
+      tag: 'Big Boosts',
+      badgeColor: 'bg-purple-100 text-purple-900 border-purple-900',
+      iconBg: 'bg-purple-500 text-white'
     },
     {
-      icon: Users,
-      title: 'Viral Referral Program',
-      description: 'Invite your friends and earn 1,000 SP bonus plus a lifetime 10% commission on every offer and slap they complete.',
-      badge: 'Passive Income',
-      color: 'bg-emerald-100 text-emerald-900 border-emerald-900',
-      iconColor: 'text-emerald-600'
-    },
-    {
-      icon: PlayCircle,
-      title: 'Rewarded Video Ads',
-      description: 'Watch short 15-30 second sponsor video ads to get instant energy refills and bonus SP anytime throughout the day.',
-      badge: 'Easy SP',
-      color: 'bg-blue-100 text-blue-900 border-blue-900',
-      iconColor: 'text-blue-600'
-    },
-    {
-      icon: Flame,
-      title: 'Daily Streak Multipliers',
-      description: 'Log in consecutive days to unlock up to 5x SP multipliers, free daily chest rewards, and special event drops.',
-      badge: 'Daily Bonus',
-      color: 'bg-rose-100 text-rose-900 border-rose-900',
-      iconColor: 'text-rose-600'
-    },
-    {
-      icon: ShieldCheck,
-      title: 'Bank-Grade Anti-Cheat Security',
-      description: 'Equipped with real-time Proxy/VPN Guard, time-sync verification, and encrypted Firestore database persistence.',
-      badge: 'Protected',
-      color: 'bg-cyan-100 text-cyan-900 border-cyan-900',
-      iconColor: 'text-cyan-600'
+      icon: Coins,
+      title: 'Cash Out Pure USDT',
+      description: 'No fake gift vouchers or restricted credits. Convert your SP directly into real USDT sent straight to your crypto wallet address.',
+      tag: 'Real Crypto',
+      badgeColor: 'bg-emerald-100 text-emerald-900 border-emerald-900',
+      iconBg: 'bg-emerald-500 text-white'
     }
   ];
 
-  const paymentMethods = [
-    { country: 'South Africa 🇿🇦', methods: 'Capitec, FNB eWallet, Tymebank, Nedbank, Vodacom Airtime', badge: 'Fast Pay' },
-    { country: 'Kenya 🇰🇪', methods: 'M-Pesa Mobile Money (Instant transfer)', badge: 'Instant' },
-    { country: 'Nigeria 🇳🇬', methods: 'OPay, PalmPay, Bank Transfer', badge: 'Direct' },
-    { country: 'Ghana 🇬🇭', methods: 'MTN Mobile Money, Vodafone Cash', badge: 'Instant' },
-    { country: 'Global / Crypto 🌍', methods: 'USDT (TRC20/BEP20), Binance Pay, Gift Cards', badge: 'Global' }
+  const usdtNetworks = [
+    {
+      network: 'USDT (BEP-20 / BNB Chain)',
+      details: 'Instant transfer & lowest transaction fees',
+      tag: 'Recommended'
+    },
+    {
+      network: 'USDT (TRC-20 / Tron)',
+      details: 'Universal exchange compatibility (Binance, Bybit, KuCoin)',
+      tag: 'Popular'
+    },
+    {
+      network: 'USDT (Polygon / MATIC)',
+      details: 'High-speed layer 2 settlement with near-zero gas',
+      tag: 'Fast'
+    }
   ];
 
   const faqs = [
     {
       question: 'What is SlapEarn.io?',
-      answer: 'SlapEarn.io is Africa’s premier gamified micro-task and tap-to-earn platform. Users earn Slap Points (SP) by playing the slap game, completing daily check-ins, answering surveys, watching ads, and inviting friends.'
+      answer: 'SlapEarn.io is a gamified micro-task and tap-to-earn platform. Users earn Slap Points (SP) by playing the slap game, claiming daily chest streaks, completing partner tasks and surveys, and inviting friends.'
     },
     {
       question: 'Is SlapEarn free to join?',
-      answer: 'Yes! SlapEarn is 100% free. You will never be asked to deposit money or pay a fee to earn or withdraw your earnings.'
+      answer: 'Yes! SlapEarn is 100% free to play. You will never be asked to deposit money or pay any fee to earn or withdraw your USDT.'
     },
     {
       question: 'How do I withdraw my earnings?',
-      answer: 'Simply navigate to the Wallet tab once logged in, select your preferred payment method (E-Wallet, M-Pesa, Bank Transfer, Airtime, or Crypto), enter your details, and request your payout. Withdrawals are processed quickly.'
+      answer: 'Navigate to the Wallet tab, select your preferred USDT network (BEP-20, TRC-20, or Polygon), paste your crypto wallet address, and request your payout.'
     },
     {
-      question: 'How much is 1,000 SP worth?',
-      answer: 'In-game points convert directly to cash in your local currency (ZAR, KES, NGN, GHS, or USDT) based on standard exchange rates visible in the Wallet section.'
+      question: 'How do SP points convert to USDT?',
+      answer: 'In-game SP points convert directly to USDT at a clear and transparent rate visible in your Wallet section.'
     },
     {
       question: 'Can I use a VPN or Proxy?',
-      answer: 'No. To maintain system fairness and prevent abuse for survey advertisers, VPNs, proxies, or time-altering software are strictly prohibited and automatically detected by our ProxyGuard security system.'
+      answer: 'No. To maintain fairness for advertisers and survey partners, VPNs, proxies, and automated emulators are strictly prohibited and will be flagged by our security system.'
     }
   ];
 
@@ -137,20 +108,22 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
     <div className="w-full h-full overflow-y-auto bg-[#FDFBF2] text-slate-800 scroll-smooth selection:bg-[#FFEAF0] selection:text-[#E33D6F] relative">
       
       {/* Sticky Header / Brand Navigation */}
-      <header className="sticky top-0 z-40 bg-[#FDFBF2]/95 backdrop-blur-md border-b-3 border-slate-900 px-4 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-1.5">
-          <div 
-            className="flex items-center font-sans font-black text-2xl italic select-none tracking-[-0.06em] rotate-[-2deg]"
-            style={{
-              textShadow: "2px 2px 0px #0F172A, -1px -1px 0px #0F172A, 1px -1px 0px #0F172A, -1px 1px 0px #0F172A"
-            }}
-          >
-            <span className="text-white">Slap</span>
-            <span className="text-[#FF2B6D] -ml-0.5">Earn</span>
+      <header className="sticky top-0 z-40 bg-[#FDFBF2]/95 backdrop-blur-md border-b-3 border-slate-900 px-4 py-2.5 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <div 
+              className="flex items-center font-sans font-black text-2xl italic select-none tracking-[-0.06em] rotate-[-2deg]"
+              style={{
+                textShadow: "2px 2px 0px #0F172A, -1px -1px 0px #0F172A, 1px -1px 0px #0F172A, -1px 1px 0px #0F172A"
+              }}
+            >
+              <span className="text-white">Slap</span>
+              <span className="text-[#FF2B6D] -ml-0.5">Earn</span>
+            </div>
+            <span className="bg-[#FFD043] text-slate-950 font-black text-[11px] px-1.5 py-0.5 rounded-md border-2 border-slate-900 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] font-mono leading-none tracking-tight select-none rotate-[-2deg]">
+              .io
+            </span>
           </div>
-          <span className="bg-[#FFD043] text-slate-950 font-black text-[11px] px-1.5 py-0.5 rounded-md border-2 border-slate-900 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] font-mono leading-none tracking-tight select-none rotate-[-2deg]">
-            .io
-          </span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -174,22 +147,20 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
       {/* Hero Section */}
       <section className="px-4 pt-6 pb-8 text-center bg-gradient-to-b from-[#FFF5DC] to-[#FDFBF2] border-b-3 border-slate-900 relative overflow-hidden">
         
-        {/* Clean background without floating shapes */}
-
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border-2 border-slate-900 bg-amber-400 text-slate-900 font-black text-[11px] shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] mb-4">
-          <Sparkles className="w-3.5 h-3.5 text-amber-900 animate-spin" />
-          <span>AFRICA'S #1 TAP-TO-EARN PLATFORM</span>
+          <Sparkles className="w-3.5 h-3.5 text-amber-900" />
+          <span>TAP-TO-EARN & USDT REWARDS</span>
         </div>
 
         <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight leading-tight mb-3">
           Slap. Earn. <br />
           <span className="text-[#FF2B6D] underline decoration-amber-400 decoration-wavy decoration-2">
-            Withdraw Real Cash!
+            Withdraw in USDT!
           </span>
         </h1>
 
         <p className="text-xs sm:text-sm font-semibold text-slate-600 max-w-sm mx-auto mb-6 leading-relaxed">
-          Join thousands of slappers across Africa turning daily taps, micro-surveys, and referrals into fast direct payouts in ZAR, M-Pesa, OPay & Crypto!
+          Tap and slap bosses, complete high-paying tasks, and cash out real crypto rewards directly to your USDT wallet!
         </p>
 
         {/* Hero CTA Buttons */}
@@ -199,7 +170,7 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
             className="w-full font-black text-sm py-3 px-6 rounded-2xl border-3 border-slate-900 bg-[#FF2B6D] text-white hover:bg-rose-600 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2 group"
           >
             <Gift className="w-4 h-4 text-amber-300 animate-bounce" />
-            <span>Get Started (+100 SP Bonus)</span>
+            <span>Sign Up with Gmail (+100 SP)</span>
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
 
@@ -208,63 +179,47 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
             className="w-full font-black text-xs py-2.5 px-4 rounded-2xl border-3 border-slate-900 bg-white text-slate-900 hover:bg-slate-100 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
           >
             <LogIn className="w-4 h-4 text-purple-600" />
-            <span>Already a Member? Log In</span>
+            <span>Member Log In</span>
           </button>
         </div>
 
-        {/* Live Starter Guarantee Card */}
+        {/* Starter Guarantee Card */}
         <div className="bg-white border-2 border-slate-900 rounded-xl p-3 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] max-w-xs mx-auto flex items-center gap-3 text-left">
           <div className="w-10 h-10 rounded-xl bg-emerald-100 border-2 border-slate-900 flex items-center justify-center shrink-0 text-emerald-600 font-black">
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div>
-            <div className="font-black text-xs text-slate-900">Instant 100 SP Starter Balance</div>
-            <div className="text-[10px] font-semibold text-slate-500">Free sign up in under 30 seconds. No deposit required.</div>
+            <div className="font-black text-xs text-slate-900">Instant 100 SP Starter Bonus</div>
+            <div className="text-[10px] font-semibold text-slate-500">Free sign up in seconds. No deposit needed.</div>
           </div>
         </div>
       </section>
 
-      {/* Live Site Metrics */}
-      <section className="px-4 py-6 bg-slate-900 text-white border-b-3 border-slate-900">
-        <div className="grid grid-cols-2 gap-3">
-          {stats.map((st, i) => {
-            const IconComponent = st.icon;
-            return (
-              <div key={i} className="bg-slate-800 border-2 border-slate-700 rounded-xl p-3 shadow-sm flex flex-col items-center text-center">
-                <IconComponent className={`w-5 h-5 mb-1 ${st.color}`} />
-                <div className="font-black text-base text-white">{st.value}</div>
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{st.label}</div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Ways to Earn (Features Grid) */}
+      {/* Catchy Highlights Section */}
       <section className="px-4 py-8 bg-[#FDFBF2] border-b-3 border-slate-900">
         <div className="text-center mb-6">
           <div className="text-[10px] font-extrabold text-[#FF2B6D] uppercase tracking-widest mb-1">HOW IT WORKS</div>
-          <h2 className="text-2xl font-black text-slate-900">6 Simple Ways to Earn SP</h2>
-          <p className="text-xs font-semibold text-slate-500 mt-1">Combine multiple earning streams daily to maximize your payout balance.</p>
+          <h2 className="text-2xl font-black text-slate-900">Slap, Complete Tasks, Cash Out</h2>
+          <p className="text-xs font-semibold text-slate-500 mt-1">Simple, fast, and 100% focused on direct crypto rewards.</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4">
-          {features.map((feat, idx) => {
-            const IconComp = feat.icon;
+        <div className="grid grid-cols-1 gap-3.5 max-w-md mx-auto">
+          {highlights.map((item, idx) => {
+            const IconComp = item.icon;
             return (
-              <div key={idx} className="bg-white border-3 border-slate-900 rounded-2xl p-4 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] relative">
+              <div key={idx} className="bg-white border-3 border-slate-900 rounded-2xl p-4 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)]">
                 <div className="flex items-start gap-3">
-                  <div className={`p-2.5 rounded-xl border-2 border-slate-900 ${feat.color} shrink-0`}>
+                  <div className={`p-2.5 rounded-xl border-2 border-slate-900 ${item.iconBg} shrink-0 shadow-[1.5px_1.5px_0px_0px_#000]`}>
                     <IconComp className="w-5 h-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-black text-sm text-slate-900">{feat.title}</h3>
-                      <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-slate-900 ${feat.color}`}>
-                        {feat.badge}
+                      <h3 className="font-black text-sm text-slate-900">{item.title}</h3>
+                      <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-slate-900 ${item.badgeColor}`}>
+                        {item.tag}
                       </span>
                     </div>
-                    <p className="text-xs font-semibold text-slate-600 leading-snug">{feat.description}</p>
+                    <p className="text-xs font-semibold text-slate-600 leading-snug">{item.description}</p>
                   </div>
                 </div>
               </div>
@@ -273,42 +228,57 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
         </div>
       </section>
 
-      {/* Payment & Withdrawal Details */}
+      {/* USDT Crypto Withdrawals */}
       <section className="px-4 py-8 bg-[#FFF9EA] border-b-3 border-slate-900">
         <div className="text-center mb-6">
-          <div className="text-[10px] font-extrabold text-amber-600 uppercase tracking-widest mb-1">WITHDRAWALS</div>
-          <h2 className="text-2xl font-black text-slate-900">Fast Local Cash Payouts</h2>
-          <p className="text-xs font-semibold text-slate-500 mt-1">Direct payout options for major African countries and global crypto users.</p>
+          <div className="text-[10px] font-extrabold text-emerald-600 uppercase tracking-widest mb-1">WITHDRAWALS</div>
+          <h2 className="text-2xl font-black text-slate-900 flex items-center justify-center gap-1.5">
+            <Coins className="w-6 h-6 text-emerald-600" />
+            <span>Pure USDT Payouts</span>
+          </h2>
+          <p className="text-xs font-semibold text-slate-500 mt-1">Direct payouts sent straight to your personal crypto wallet or exchange.</p>
         </div>
 
-        <div className="space-y-3">
-          {paymentMethods.map((pm, i) => (
+        <div className="space-y-2.5 max-w-md mx-auto">
+          {usdtNetworks.map((net, i) => (
             <div key={i} className="bg-white border-2 border-slate-900 rounded-xl p-3 shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)] flex items-center justify-between gap-2">
-              <div>
-                <div className="font-black text-xs text-slate-900 flex items-center gap-1.5">
-                  <CreditCard className="w-3.5 h-3.5 text-amber-600" />
-                  <span>{pm.country}</span>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 border border-emerald-400 flex items-center justify-center text-emerald-700 shrink-0 font-black text-xs">
+                  ₮
                 </div>
-                <div className="text-[11px] font-semibold text-slate-600 mt-0.5">{pm.methods}</div>
+                <div>
+                  <div className="font-black text-xs text-slate-900">{net.network}</div>
+                  <div className="text-[10.5px] font-semibold text-slate-500 mt-0.5">{net.details}</div>
+                </div>
               </div>
               <span className="text-[9px] font-black px-2 py-1 rounded-lg border border-slate-900 bg-amber-300 text-slate-900 shrink-0">
-                {pm.badge}
+                {net.tag}
               </span>
             </div>
           ))}
         </div>
+
+        <div className="mt-4 max-w-md mx-auto bg-emerald-50 border-2 border-emerald-500 rounded-xl p-3 flex items-center gap-2.5 text-left">
+          <Wallet className="w-5 h-5 text-emerald-600 shrink-0" />
+          <p className="text-[11px] font-bold text-emerald-950 leading-tight">
+            Compatible with Binance, Trust Wallet, MetaMask, OKX, Bybit, and any Web3 wallet.
+          </p>
+        </div>
       </section>
 
-      {/* Anti-Cheat & Security Guarantee */}
+      {/* Fair & Secure Guarantee */}
       <section className="px-4 py-6 bg-slate-900 text-white border-b-3 border-slate-900">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-amber-400 text-slate-900 rounded-2xl border-2 border-slate-900 shrink-0">
+        <div className="flex items-center gap-3 max-w-md mx-auto">
+          <div className="p-3 bg-amber-400 text-slate-900 rounded-2xl border-2 border-slate-900 shrink-0 shadow-[2px_2px_0px_0px_#000]">
             <Lock className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="font-black text-sm text-amber-400">100% Fair & Secure Platform</h3>
+            <h3 className="font-black text-sm text-amber-400 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4" />
+              <span>100% Fair & Secure Platform</span>
+            </h3>
             <p className="text-xs font-semibold text-slate-300 mt-0.5 leading-snug">
-              Protected by ProxyGuard network verification, server-authenticated time checks, and instant Firestore database synchronization.
+              Protected by ProxyGuard network verification, server-authenticated time checks, and encrypted cloud synchronization.
             </p>
           </div>
         </div>
@@ -321,7 +291,7 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
           <h2 className="text-2xl font-black text-slate-900">Frequently Asked Questions</h2>
         </div>
 
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 max-w-md mx-auto">
           {faqs.map((faq, idx) => (
             <div key={idx} className="bg-white border-2 border-slate-900 rounded-xl overflow-hidden shadow-[2px_2px_0px_0px_rgba(15,23,42,1)]">
               <button
@@ -359,12 +329,41 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
           <span>Claim 100 SP Starter Bonus</span>
         </button>
 
-        <div className="mt-6 pt-6 border-t border-rose-400/40 text-[10px] font-bold text-rose-200 flex flex-col gap-1 items-center">
+        <div className="mt-6 pt-6 border-t border-rose-400/40 text-[10px] font-bold text-rose-200 flex flex-col gap-1.5 items-center">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                sound.playSlap();
+                setLegalTab('terms');
+                setIsLegalOpen(true);
+              }}
+              className="text-white hover:underline cursor-pointer font-extrabold"
+            >
+              Terms of Service
+            </button>
+            <span>•</span>
+            <button
+              onClick={() => {
+                sound.playSlap();
+                setLegalTab('privacy');
+                setIsLegalOpen(true);
+              }}
+              className="text-white hover:underline cursor-pointer font-extrabold"
+            >
+              Privacy Policy
+            </button>
+          </div>
           <div>© {new Date().getFullYear()} SlapEarn.io. All rights reserved.</div>
-          <div>Africa's Gamified Micro-Task & Tap-to-Earn Network</div>
+          <div>Gamified Tap-to-Earn & USDT Crypto Rewards</div>
         </div>
       </section>
 
+      {/* Legal Modal */}
+      <LegalModal
+        isOpen={isLegalOpen}
+        onClose={() => setIsLegalOpen(false)}
+        initialTab={legalTab}
+      />
     </div>
   );
 }

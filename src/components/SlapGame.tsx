@@ -7,6 +7,8 @@ import { HAND_UPGRADES } from '../handsData';
 import { CharacterVisual } from './CharacterVisual';
 import SlapAMole from './SlapAMole';
 import { AdsterraBanner } from './AdsterraAds';
+import HilltopRewardedAdModal from './HilltopRewardedAdModal';
+import { getServerNow } from '../utils/serverTime';
 
 export interface SlapCharacter {
   id: string;
@@ -74,6 +76,8 @@ export const CHARACTER_SPECS: Record<string, {
   criticalReward: number;
   defeatCoins: number;
   defeatXp: number;
+  timerSeconds: number;
+  timerFormatted: string;
   folderPath: string;
 }> = {
   'Momo Peach': {
@@ -84,6 +88,8 @@ export const CHARACTER_SPECS: Record<string, {
     criticalReward: 4,
     defeatCoins: 25,
     defeatXp: 30,
+    timerSeconds: 180, // 3:00 (3 minutes)
+    timerFormatted: '3:00',
     folderPath: 'momo'
   },
   'Puni Slime': {
@@ -94,6 +100,8 @@ export const CHARACTER_SPECS: Record<string, {
     criticalReward: 6,
     defeatCoins: 45,
     defeatXp: 50,
+    timerSeconds: 150, // 2:30 (2.5 minutes)
+    timerFormatted: '2:30',
     folderPath: 'puni'
   },
   'Bobo Tea': {
@@ -104,6 +112,8 @@ export const CHARACTER_SPECS: Record<string, {
     criticalReward: 10,
     defeatCoins: 75,
     defeatXp: 80,
+    timerSeconds: 120, // 2:00 (2 minutes)
+    timerFormatted: '2:00',
     folderPath: 'bobo'
   },
   'Wooly Alpaca': {
@@ -114,6 +124,8 @@ export const CHARACTER_SPECS: Record<string, {
     criticalReward: 15,
     defeatCoins: 140,
     defeatXp: 150,
+    timerSeconds: 90, // 1:30 (1.5 minutes)
+    timerFormatted: '1:30',
     folderPath: 'wooly'
   },
   'Aero Star': {
@@ -124,6 +136,8 @@ export const CHARACTER_SPECS: Record<string, {
     criticalReward: 25,
     defeatCoins: 300,
     defeatXp: 300,
+    timerSeconds: 60, // 1:00 (1 minute)
+    timerFormatted: '1:00',
     folderPath: 'aero'
   }
 };
@@ -152,6 +166,8 @@ interface SavedCharacterState {
   maxHp: number;
   hp: number;
   timerSeconds: number;
+  totalDurationSeconds: number;
+  expiresAt: number;
   folderPath: string;
   defeatCoins: number;
   defeatXp: number;
@@ -162,80 +178,36 @@ interface SavedCharacterState {
 
 function spawnNewCharacter(): SavedCharacterState {
   const roll = Math.random() * 100;
-  let rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
-  let timerSeconds = 180;
-  let maxHp = 50;
-  let defeatCoins = 25;
-  let defeatXp = 30;
-  let baseReward = 1;
-  let criticalReward = 4;
-  let name = 'Momo Peach';
-  let folderPath = 'momo';
+  let specName = 'Momo Peach';
 
   if (roll < 70) {
-    rarity = 'COMMON';
-    timerSeconds = 180; // 3:00
-    maxHp = 50;
-    defeatCoins = 25;
-    defeatXp = 30;
-    baseReward = 1;
-    criticalReward = 4;
-    name = 'Momo Peach';
-    folderPath = 'momo';
+    specName = 'Momo Peach';
   } else if (roll < 90) { // 70 + 20 = 90
-    rarity = 'UNCOMMON';
-    timerSeconds = 150; // 2:30
-    maxHp = 80;
-    defeatCoins = 45;
-    defeatXp = 50;
-    baseReward = 1.5;
-    criticalReward = 6;
-    name = 'Puni Slime';
-    folderPath = 'puni';
+    specName = 'Puni Slime';
   } else if (roll < 97) { // 90 + 7 = 97
-    rarity = 'RARE';
-    timerSeconds = 120; // 2:00
-    maxHp = 120;
-    defeatCoins = 75;
-    defeatXp = 80;
-    baseReward = 2.5;
-    criticalReward = 10;
-    name = 'Bobo Tea';
-    folderPath = 'bobo';
+    specName = 'Bobo Tea';
   } else if (roll < 99.5) { // 97 + 2.5 = 99.5
-    rarity = 'EPIC';
-    timerSeconds = 90; // 1:30
-    maxHp = 200;
-    defeatCoins = 140;
-    defeatXp = 150;
-    baseReward = 4;
-    criticalReward = 15;
-    name = 'Wooly Alpaca';
-    folderPath = 'wooly';
+    specName = 'Wooly Alpaca';
   } else {
-    rarity = 'LEGENDARY';
-    timerSeconds = 60; // 1:00
-    maxHp = 350;
-    defeatCoins = 300;
-    defeatXp = 300;
-    baseReward = 7.5;
-    criticalReward = 25;
-    name = 'Aero Star';
-    folderPath = 'aero';
+    specName = 'Aero Star';
   }
 
+  const spec = CHARACTER_SPECS[specName];
+  const now = getServerNow();
   return {
-    name,
-    rarity,
-    maxHp,
-    hp: maxHp,
-    timerSeconds,
-    folderPath,
-    defeatCoins,
-    defeatXp,
-    lastSavedTimestamp: Date.now(),
-    baseReward,
-    criticalReward
+    name: spec.name,
+    rarity: spec.rarity,
+    maxHp: spec.maxHp,
+    hp: spec.maxHp,
+    timerSeconds: spec.timerSeconds,
+    totalDurationSeconds: spec.timerSeconds,
+    expiresAt: now + (spec.timerSeconds * 1000),
+    folderPath: spec.folderPath,
+    defeatCoins: spec.defeatCoins,
+    defeatXp: spec.defeatXp,
+    lastSavedTimestamp: now,
+    baseReward: spec.baseReward,
+    criticalReward: spec.criticalReward
   };
 }
 
@@ -251,6 +223,7 @@ const SHOWCASE_CHARACTERS = [
     hp: 50,
     reward: 1,
     critical: 4,
+    timer: '3:00',
     chance: '70%',
     patSuccess: '15%',
     image: 'momo'
@@ -266,6 +239,7 @@ const SHOWCASE_CHARACTERS = [
     hp: 80,
     reward: 1.5,
     critical: 6,
+    timer: '2:30',
     chance: '20%',
     patSuccess: '10%',
     image: 'puni'
@@ -281,6 +255,7 @@ const SHOWCASE_CHARACTERS = [
     hp: 120,
     reward: 2.5,
     critical: 10,
+    timer: '2:00',
     chance: '7%',
     patSuccess: '7%',
     image: 'bobo'
@@ -296,6 +271,7 @@ const SHOWCASE_CHARACTERS = [
     hp: 200,
     reward: 4,
     critical: 15,
+    timer: '1:30',
     chance: '2.5%',
     patSuccess: '4%',
     image: 'wooly'
@@ -311,6 +287,7 @@ const SHOWCASE_CHARACTERS = [
     hp: 350,
     reward: 7.5,
     critical: 25,
+    timer: '1:00',
     chance: '0.5%',
     patSuccess: '2%',
     image: 'aero'
@@ -347,15 +324,13 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
   const petTimerRef = useRef<NodeJS.Timeout | null>(null);
   const speechTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load / Persist active character state
+  // Load / Persist active character state with strict timer duration & expiresAt preservation
   const [characterState, setCharacterState] = useState<SavedCharacterState>(() => {
     const saved = localStorage.getItem('slapearn_active_character_state');
     if (saved) {
       try {
         const parsed: SavedCharacterState = JSON.parse(saved);
-        const elapsedSeconds = Math.floor((Date.now() - parsed.lastSavedTimestamp) / 1000);
-        const updatedTimer = Math.max(0, parsed.timerSeconds - elapsedSeconds);
-        
+        const now = getServerNow();
         const spec = CHARACTER_SPECS[parsed.name] || 
           (parsed.rarity === 'COMMON' ? CHARACTER_SPECS['Momo Peach'] :
            parsed.rarity === 'UNCOMMON' ? CHARACTER_SPECS['Puni Slime'] :
@@ -363,19 +338,33 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
            parsed.rarity === 'EPIC' ? CHARACTER_SPECS['Wooly Alpaca'] :
            CHARACTER_SPECS['Aero Star']);
 
-        if (updatedTimer > 0 && parsed.hp > 0) {
+        let targetExpiresAt = parsed.expiresAt;
+        if (typeof targetExpiresAt !== 'number' || isNaN(targetExpiresAt) || targetExpiresAt <= 1700000000000) {
+          if (typeof parsed.timerSeconds === 'number' && typeof parsed.lastSavedTimestamp === 'number') {
+            targetExpiresAt = parsed.lastSavedTimestamp + (Math.min(spec.timerSeconds, parsed.timerSeconds) * 1000);
+          } else {
+            targetExpiresAt = now + (spec.timerSeconds * 1000);
+          }
+        }
+
+        const remainingSeconds = Math.max(0, Math.ceil((targetExpiresAt - now) / 1000));
+
+        if (remainingSeconds > 0 && parsed.hp > 0) {
           return {
             ...parsed,
             name: spec.name,
             rarity: spec.rarity,
             maxHp: spec.maxHp,
+            hp: Math.min(spec.maxHp, Math.max(1, parsed.hp)),
             baseReward: spec.baseReward,
             criticalReward: spec.criticalReward,
             defeatCoins: spec.defeatCoins,
             defeatXp: spec.defeatXp,
             folderPath: spec.folderPath,
-            timerSeconds: updatedTimer,
-            lastSavedTimestamp: Date.now()
+            timerSeconds: Math.min(spec.timerSeconds, remainingSeconds),
+            totalDurationSeconds: spec.timerSeconds,
+            expiresAt: targetExpiresAt,
+            lastSavedTimestamp: now
           };
         }
       } catch (err) {
@@ -392,11 +381,14 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
     localStorage.setItem('slapearn_active_character_state', JSON.stringify(characterState));
   }, [characterState]);
 
-  // Handle active countdown timer
+  // Handle active countdown timer & real-time focus sync across page switches
   useEffect(() => {
-    const interval = setInterval(() => {
+    const updateCountdown = () => {
+      const now = getServerNow();
       setCharacterState((prev) => {
-        if (prev.timerSeconds <= 1) {
+        const remainingSec = Math.max(0, Math.ceil((prev.expiresAt - now) / 1000));
+        
+        if (remainingSec <= 0) {
           // Timer reached 0! The character escaped!
           const spawned = spawnNewCharacter();
           
@@ -410,13 +402,22 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
         
         return {
           ...prev,
-          timerSeconds: prev.timerSeconds - 1,
-          lastSavedTimestamp: Date.now()
+          timerSeconds: remainingSec,
+          lastSavedTimestamp: now
         };
       });
-    }, 1000);
+    };
 
-    return () => clearInterval(interval);
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    window.addEventListener('focus', updateCountdown);
+    document.addEventListener('visibilitychange', updateCountdown);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', updateCountdown);
+      document.removeEventListener('visibilitychange', updateCountdown);
+    };
   }, [addNotification]);
 
   const nextParticleId = useRef<number>(0);
@@ -667,32 +668,41 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
     }
   };
 
-  // Watch Sponsor Ad: restores exactly 1 slap
+  // Watch Sponsor Ad (HilltopAds VAST Zone 7333693): restores 3 slaps + 5 SP
   const handleWatchQuickAd = () => {
-    if (isWatchingQuickAd) return;
+    if (stats.adsWatchedToday && stats.adsWatchedToday >= 20) {
+      sound.playError();
+      addNotification('Daily Limit Reached', 'You have reached your limit of 20 ads per day.', 'info');
+      return;
+    }
     
     sound.playSlap();
     setIsWatchingQuickAd(true);
-    setQuickAdCountdown(15);
+  };
 
-    let secLeft = 15;
-    if (quickAdIntervalRef.current) clearInterval(quickAdIntervalRef.current);
-    quickAdIntervalRef.current = setInterval(() => {
-      secLeft -= 1;
-      setQuickAdCountdown(secLeft);
-      
-      if (secLeft <= 0) {
-        if (quickAdIntervalRef.current) clearInterval(quickAdIntervalRef.current);
-        setIsWatchingQuickAd(false);
-        sound.playSuccess();
+  const handleQuickAdSuccess = (reward: { slapsRefilled: number; spAwarded: number; xpAwarded: number; totalAdsWatchedLifetime: number }) => {
+    setIsWatchingQuickAd(false);
+    sound.playSuccess();
 
-        // Restore exactly 1 slap
-        updateStatsDirectly({
-          slapsToday: Math.max(0, stats.slapsToday - 1)
-        });
-        addNotification('Ad Watched!', 'Successfully earned +1 Slap energy!', 'success');
-      }
-    }, 1000);
+    const slapsRestored = reward.slapsRefilled || 3;
+    const nextSlapsToday = Math.max(0, stats.slapsToday - slapsRestored);
+    const nextToday = (stats.adsWatchedToday || 0) + 1;
+    const nextLifetime = reward.totalAdsWatchedLifetime || ((stats.totalAdsWatchedLifetime || 0) + 1);
+
+    updateStatsDirectly({
+      slapsToday: nextSlapsToday,
+      adsWatchedToday: nextToday,
+      totalAdsWatchedLifetime: nextLifetime
+    });
+
+    updateCoinsAndXp(reward.spAwarded || 5, reward.xpAwarded || 10, 'Ad', 'Watched Video Ad (HilltopAds Zone 7333693)');
+    addNotification('Ad Watched!', `Successfully refilled +${slapsRestored} Slaps & +${reward.spAwarded || 5} SP!`, 'success');
+  };
+
+  const handleQuickAdFailedOrSkipped = (reason?: string) => {
+    setIsWatchingQuickAd(false);
+    sound.playError();
+    addNotification('Ad Incomplete', reason || 'Ad was closed early. Watch full video to earn rewards!', 'info');
   };
 
   const triggerSpeech = (type: 'hit' | 'miss' | 'pat') => {
@@ -842,8 +852,9 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
 
   // Format countdown text helper
   const formatTimer = (totalSeconds: number) => {
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
+    const safeSeconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const minutes = Math.floor(safeSeconds / 60);
+    const seconds = safeSeconds % 60;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
@@ -1215,6 +1226,10 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
               {/* Stats list */}
               <div className="flex flex-col gap-1 border-t border-white/10 pt-1.5">
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-300">
+                  <span className="flex items-center gap-0.5">⏱ Timer</span>
+                  <span className="font-mono text-cyan-400 font-extrabold">{char.timer}</span>
+                </div>
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-300">
                   <span className="flex items-center gap-0.5">❤️ HP</span>
                   <span className="font-mono text-white font-extrabold">{char.hp}</span>
                 </div>
@@ -1271,26 +1286,15 @@ export default function SlapGame({ stats, updateCoinsAndXp, updateStatsDirectly,
       </>
       )}
 
-      {/* Sponsor Quick Commercial Overlay */}
-      {isWatchingQuickAd && (
-        <div className="fixed inset-0 bg-[#0F172A]/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-[#FFEED1] border-4 border-slate-950 rounded-[32px] p-5 text-center max-w-[340px] w-full shadow-[5px_6px_0px_0px_rgba(0,0,0,1)] relative overflow-hidden flex flex-col items-center">
-            <div className="w-10 h-10 rounded-full bg-white border-3 border-slate-950 flex items-center justify-center text-rose-500 mb-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-              📺
-            </div>
-            <h4 className="text-sm font-black text-slate-950 tracking-tight">Sponsor Commercial</h4>
-            <p className="text-slate-600 text-[10px] font-bold mt-0.5 mb-2">
-              Restoring slaps energy balance in {quickAdCountdown}s...
-            </p>
-
-            <AdsterraBanner />
-
-            <span className="text-[10px] font-black text-[#FF3B77] uppercase tracking-widest mt-2 block">
-              Sponsor: Adsterra Partner Ad
-            </span>
-          </div>
-        </div>
-      )}
+      {/* HilltopAds VAST Rewarded Video Modal (Zone 7333693) */}
+      <HilltopRewardedAdModal
+        isOpen={isWatchingQuickAd}
+        onClose={() => setIsWatchingQuickAd(false)}
+        onRewardSuccess={handleQuickAdSuccess}
+        onAdSkippedOrFailed={handleQuickAdFailedOrSkipped}
+        adsWatchedToday={stats.adsWatchedToday || 0}
+        maxDailyAds={20}
+      />
 
     </div>
   );

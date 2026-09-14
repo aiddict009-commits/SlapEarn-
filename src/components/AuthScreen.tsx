@@ -3,8 +3,9 @@ import { motion } from 'motion/react';
 import { User, Mail, Lock, Gift, Sparkles, LogIn, UserPlus, ArrowRight, RefreshCw, Check, KeyRound, Globe, Info } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { detectUserCountry, ALLOWED_COUNTRIES } from '../utils/countryGuard';
-import { registerUserInFirebase, loginUserInFirebase, loginWithGoogleRedirect } from '../lib/firebase';
+import { registerUserInFirebase, loginUserInFirebase, checkPreLoginRateLimitApi, recordLoginAttemptApi } from '../lib/firebase';
 import LandingPage from './LandingPage';
+import LegalModal, { LegalTab } from './LegalModal';
 
 export interface AuthUser {
   uid?: string;
@@ -30,6 +31,9 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
   const [isRefCodeAutoFilled, setIsRefCodeAutoFilled] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState<LegalTab>('terms');
 
   // Parse referral code from URL search parameters (?ref=... or ?referral=... or ?code=...) or path
   useEffect(() => {
@@ -90,6 +94,20 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
     return () => { isMounted = false; };
   }, []);
 
+  // When installed PWA is launched and user already has an active account, directly log in!
+  useEffect(() => {
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+    const storedUid = localStorage.getItem('slapearn_active_uid');
+    const storedProfile = localStorage.getItem('slapearn_user_profile');
+
+    if (isPWA && storedUid && storedProfile) {
+      try {
+        const user = JSON.parse(storedProfile);
+        onLoginSuccess(user, false);
+      } catch {}
+    }
+  }, [onLoginSuccess]);
+
   // Handle Sign Up via Firebase Auth & Firestore
   const handleSignUp = async (e: FormEvent) => {
     e.preventDefault();
@@ -113,6 +131,11 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
     }
     if (!isPasswordValid) {
       setErrorMessage('Password must be at least 6 characters long.');
+      sound.playError();
+      return;
+    }
+    if (!agreedToTerms) {
+      setErrorMessage('You must agree to the Terms of Service and Privacy Policy to continue.');
       sound.playError();
       return;
     }
@@ -237,8 +260,20 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
 
     setIsSubmitting(true);
     try {
+      // 1. Pre-login rate limit & abuse protection check (Fix 13)
+      const rateCheck = await checkPreLoginRateLimitApi(inputKey);
+      if (rateCheck && rateCheck.allowed === false) {
+        sound.playError();
+        setErrorMessage(rateCheck.message || 'Too many login attempts. Please wait a moment before trying again.');
+        setIsSubmitting(false);
+        return;
+      }
+
       const { uid, stats } = await loginUserInFirebase(inputKey, password);
       
+      // Record successful login
+      await recordLoginAttemptApi(inputKey, true);
+
       const existingUser: AuthUser = {
         uid,
         username: stats.username || 'Slapper',
@@ -252,6 +287,9 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
     } catch (err: any) {
       sound.playError();
       console.error('Login error:', err);
+      // Record failed login attempt (Fix 13)
+      await recordLoginAttemptApi(inputKey, false);
+
       if (err.code === 'auth/user-not-found' || err.message?.includes('not found') || err.message?.includes('sign up first')) {
         setUnregisteredAccount(inputKey);
         setErrorMessage(`Account not found for "${inputKey}". Please sign up first.`);
@@ -263,21 +301,6 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         setErrorMessage(err.message || 'Server login failed. Please check your network connection.');
       }
     } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Handle Google Sign In with Redirect (bypasses popup blockers, mobile & web friendly)
-  const handleGoogleSignIn = async () => {
-    setErrorMessage('');
-    setIsSubmitting(true);
-    try {
-      sound.playSlap();
-      await loginWithGoogleRedirect();
-    } catch (err: any) {
-      sound.playError();
-      console.error('Google Sign-In Redirect error:', err);
-      setErrorMessage(err.message || 'Failed to start Google Sign-In redirect. Please try again.');
       setIsSubmitting(false);
     }
   };
@@ -396,18 +419,15 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
             <span>← View Site Details & Overview</span>
           </button>
 
-          {/* App Logo Header */}
-          <div className="flex flex-col items-center text-center mb-2.5">
-            <div className="w-10 h-10 bg-[#FFEED1] border-2 border-slate-900 rounded-xl overflow-hidden shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] mb-1">
-              <img src="/icon-192.png" alt="SlapEarn Logo" className="w-full h-full object-cover" />
-            </div>
-            <h1 className="text-xl font-black text-slate-950 tracking-tight flex items-center gap-1.5">
+          {/* App Title Header */}
+          <div className="flex flex-col items-center text-center mb-3">
+            <h1 className="text-2xl font-black text-slate-950 tracking-tight flex items-center gap-1.5">
               <span>SlapEarn</span>
               <span className="bg-[#FFD043] text-slate-950 font-black text-[10px] px-1.5 py-0.5 rounded-md border border-slate-900 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)] font-mono leading-none tracking-tight">
                 .io
               </span>
             </h1>
-            <p className="text-slate-500 font-bold text-[10px] mt-0.5">
+            <p className="text-slate-500 font-bold text-[10.5px] mt-0.5">
               {mode === 'signup' ? 'Create an account to start earning SP!' : 'Welcome back! Log in to your account.'}
             </p>
           </div>
@@ -498,50 +518,6 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
               )}
             </div>
           )}
-
-          {/* Google Sign-Up / Log-In with Redirect Button */}
-          <button
-            type="button"
-            onClick={handleGoogleSignIn}
-            disabled={isSubmitting}
-            className="w-full bg-white hover:bg-slate-50 text-slate-900 font-black text-xs py-2.5 px-3 rounded-xl border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2 mb-2.5 disabled:opacity-60 group relative"
-          >
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-              />
-            </svg>
-            <span className="text-slate-900 font-black">
-              {mode === 'signup' ? 'Sign up with Google' : 'Log in with Google'}
-            </span>
-            {mode === 'signup' && (
-              <span className="bg-amber-100 text-amber-900 text-[9px] font-black px-1.5 py-0.5 rounded-full border border-amber-400">
-                +100 SP
-              </span>
-            )}
-          </button>
-
-          {/* OR Divider */}
-          <div className="relative flex items-center mb-2.5">
-            <div className="flex-grow border-t border-slate-300"></div>
-            <span className="flex-shrink mx-2 text-[9.5px] font-black text-slate-400 uppercase tracking-wider">
-              {mode === 'signup' ? 'or register with email' : 'or log in with email'}
-            </span>
-            <div className="flex-grow border-t border-slate-300"></div>
-          </div>
 
           {/* Form Body */}
           {mode === 'signup' ? (
@@ -650,6 +626,53 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                 </p>
               </div>
 
+              {/* Terms & Conditions and Privacy Policy Agreement */}
+              <div className="bg-slate-50 border-2 border-slate-900 rounded-xl p-2.5 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
+                <label className="flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={agreedToTerms}
+                    onChange={(e) => {
+                      sound.playSlap();
+                      setAgreedToTerms(e.target.checked);
+                      if (errorMessage.includes('Terms') || errorMessage.includes('agree')) {
+                        setErrorMessage('');
+                      }
+                    }}
+                    className="mt-0.5 w-4 h-4 rounded border-2 border-slate-900 text-[#A855F7] focus:ring-[#A855F7] cursor-pointer shrink-0 accent-[#A855F7]"
+                  />
+                  <span className="text-[10.5px] font-bold text-slate-700 leading-tight">
+                    I agree to the{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        sound.playSlap();
+                        setLegalModalTab('terms');
+                        setIsLegalModalOpen(true);
+                      }}
+                      className="font-black text-purple-700 underline hover:text-purple-900 cursor-pointer"
+                    >
+                      Terms of Service
+                    </button>
+                    {' '}and{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        sound.playSlap();
+                        setLegalModalTab('privacy');
+                        setIsLegalModalOpen(true);
+                      }}
+                      className="font-black text-emerald-700 underline hover:text-emerald-900 cursor-pointer"
+                    >
+                      Privacy Policy
+                    </button>
+                    . (Must be 13+, real account, no VPN/proxies/bots).
+                  </span>
+                </label>
+              </div>
+
               <button
                 type="submit"
                 disabled={isDetectingCountry || isSubmitting}
@@ -719,6 +742,13 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           )}
         </motion.div>
       )}
+
+      {/* Terms of Service & Privacy Policy Modal */}
+      <LegalModal
+        isOpen={isLegalModalOpen}
+        onClose={() => setIsLegalModalOpen(false)}
+        initialTab={legalModalTab}
+      />
     </div>
   );
 }

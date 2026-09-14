@@ -47,7 +47,6 @@ export interface NetworkProviderConfig {
 // Supported external networks mapping
 export const NETWORK_PROVIDERS: Record<string, NetworkProviderConfig> = {
   cpx: { name: 'CPX Research', secretEnvVar: 'CPX_RESEARCH_SECRET' },
-  torox: { name: 'Torox', secretEnvVar: 'TOROX_SECRET_KEY' },
   monlix: { name: 'Monlix', secretEnvVar: 'MONLIX_SECRET_KEY' },
   mylead: { name: 'MyLead', secretEnvVar: 'MYLEAD_SECRET_TOKEN' },
   bitlabs: { name: 'BitLabs', secretEnvVar: 'BITLABS_SECRET_KEY' },

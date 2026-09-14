@@ -7,6 +7,8 @@ import { UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from '.
 import { sound } from '../utils/sound';
 import { proxyGuard, NetworkSecurityStatus } from '../utils/proxyGuard';
 import { triggerRewardedAdScript, RewardedAdScript, checkRewardedAdLoaded } from './AdsterraAds';
+import HilltopRewardedAdModal from './HilltopRewardedAdModal';
+import { getServerNow, verifyWheelSpinServer } from '../utils/serverTime';
 
 interface OfferItem {
   id: string;
@@ -92,50 +94,6 @@ const OFFERWALL_PARTNERS: OfferwallPartner[] = [
     avgReward: '1,500 – 6,000 SP',
     estTime: '5 – 15 mins',
     offers: []
-  },
-  {
-    id: 'torox',
-    name: 'ToroX (OfferToro)',
-    badge: '🎮 TOP GAME OFFERS',
-    badgeColor: 'bg-purple-500 text-white',
-    icon: '🎮',
-    description: 'Leading global offerwall for high-paying mobile game achievements, app downloads, & trials.',
-    avgReward: '2,000 – 12,000 SP',
-    estTime: '10 – 25 mins',
-    offers: [
-      {
-        id: 'torox-1',
-        title: 'Shadow Conquest: Upgrade Castle to Level 10',
-        rewardSp: 7500,
-        time: '20 mins',
-        type: 'Mobile Game',
-        description: 'Download Shadow Conquest via ToroX, complete tutorial, and upgrade main castle.'
-      },
-      {
-        id: 'torox-2',
-        title: 'Crypto Invest App: Register & Verify ID',
-        rewardSp: 4800,
-        time: '10 mins',
-        type: 'App Trial',
-        description: 'Sign up for Crypto Invest, complete basic KYC verification to claim 4,800 SP.'
-      },
-      {
-        id: 'torox-3',
-        title: 'Cyber Racer 3D: Reach Stage 15',
-        rewardSp: 3200,
-        time: '15 mins',
-        type: 'Game Achievement',
-        description: 'Install Cyber Racer 3D, finish 15 stages, and unlock your first rare supercar.'
-      },
-      {
-        id: 'torox-4',
-        title: 'Smart Budgeting Tool: 7-Day Free Trial',
-        rewardSp: 5100,
-        time: '8 mins',
-        type: 'App Install',
-        description: 'Start a free 7-day trial on Smart Budgeting and link your first savings goal.'
-      }
-    ]
   },
   {
     id: 'monlix',
@@ -262,24 +220,33 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
 
   const [isPointerWobbling, setIsPointerWobbling] = useState<boolean>(false);
 
-  // Wheel Cooldown tracking state
-  const [now, setNow] = useState<number>(Date.now());
+  // Wheel Cooldown tracking state with server monotonic clock
+  const [now, setNow] = useState<number>(() => getServerNow());
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-    return () => clearInterval(timer);
+    const updateNow = () => setNow(getServerNow());
+    updateNow();
+    const timer = setInterval(updateNow, 1000);
+    window.addEventListener('focus', updateNow);
+    document.addEventListener('visibilitychange', updateNow);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', updateNow);
+      document.removeEventListener('visibilitychange', updateNow);
+    };
   }, []);
 
   const COOLDOWN_MS = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
-  const lastSpinTime = stats.lastWheelSpin ? new Date(stats.lastWheelSpin).getTime() : 0;
-  const timeSinceLastSpin = now - lastSpinTime;
-  const isWheelOnCooldown = timeSinceLastSpin < COOLDOWN_MS;
-  const cooldownRemaining = COOLDOWN_MS - timeSinceLastSpin;
+  const rawSpinTime = stats.lastWheelSpin
+    ? (typeof stats.lastWheelSpin === 'number' ? stats.lastWheelSpin : Date.parse(stats.lastWheelSpin))
+    : 0;
+  const lastSpinTime = !rawSpinTime || isNaN(rawSpinTime) ? 0 : rawSpinTime;
+  const timeSinceLastSpin = lastSpinTime > 0 ? Math.max(0, now - lastSpinTime) : COOLDOWN_MS + 1;
+  const isWheelOnCooldown = lastSpinTime > 0 && timeSinceLastSpin < COOLDOWN_MS;
+  const cooldownRemaining = isWheelOnCooldown ? Math.max(0, COOLDOWN_MS - timeSinceLastSpin) : 0;
 
   const formatRemainingTime = (ms: number) => {
-    if (ms <= 0) return '0s';
+    if (!ms || isNaN(ms) || ms <= 0) return '0s';
     const totalSecs = Math.floor(ms / 1000);
     const hours = Math.floor(totalSecs / 3600);
     const mins = Math.floor((totalSecs % 3600) / 60);
@@ -581,7 +548,7 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [inputRefCode, setInputRefCode] = useState<string>('');
 
-  // Start Video Ad
+  // Start Video Ad (HilltopAds VAST Zone 7333693)
   const startAd = () => {
     const currentWatched = stats.adsWatchedToday ?? 0;
     if (currentWatched >= 20) {
@@ -590,53 +557,27 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
       return;
     }
 
-    // Step 1: Check if ad is loaded
-    if (!checkRewardedAdLoaded()) {
-      sound.playError();
-      addNotification('Ad Not Loaded', 'Ad is not loaded yet, please try again.', 'info');
-      triggerRewardedAdScript(); // Attempt preloading for next tap
-      return;
-    }
-
     sound.playSlap();
-    triggerRewardedAdScript();
     setActiveModal('ad');
-    setIsAdPlaying(true);
-    setAdFinished(false);
-    setAdCountdown(5);
-
-    let remaining = 5;
-    const timer = setInterval(() => {
-      remaining -= 1;
-      setAdCountdown(remaining);
-      if (remaining <= 0) {
-        clearInterval(timer);
-        handleEarnAdSuccess();
-      }
-    }, 1000);
-
-    (window as any).currentEarnAdTimer = timer;
   };
 
-  const handleEarnAdSuccess = () => {
-    if ((window as any).currentEarnAdTimer) {
-      clearInterval((window as any).currentEarnAdTimer);
-    }
-    setIsAdPlaying(false);
-    setAdFinished(true);
+  const handleEarnAdSuccess = (reward?: { slapsRefilled: number; spAwarded: number; xpAwarded: number; totalAdsWatchedLifetime: number }) => {
+    setActiveModal(null);
     sound.playSuccess();
 
-    const nextLifetime = (stats.totalAdsWatchedLifetime || 0) + 1;
+    const slapsRestored = reward?.slapsRefilled || 3;
+    const nextLifetime = reward?.totalAdsWatchedLifetime || ((stats.totalAdsWatchedLifetime || 0) + 1);
     const nextToday = (stats.adsWatchedToday ?? 0) + 1;
 
     let updateObj: Partial<UserStats> = {
-      slapsToday: Math.max(0, stats.slapsToday - 3),
+      slapsToday: Math.max(0, stats.slapsToday - slapsRestored),
       adsWatchedToday: nextToday,
       totalAdsWatchedLifetime: nextLifetime
     };
 
-    const awardedAdSp = spPerAd * doubleSpMultiplier;
-    updateCoinsAndXp(awardedAdSp, 10, 'Ad', 'Watched Video Ad');
+    const awardedAdSp = (reward?.spAwarded || spPerAd) * doubleSpMultiplier;
+    const awardedXp = reward?.xpAwarded || 10;
+    updateCoinsAndXp(awardedAdSp, awardedXp, 'Ad', 'Watched Video Ad (HilltopAds Zone 7333693)');
 
     // Check 20-ads milestone for referee reward
     if (nextLifetime >= 20 && !stats.referredByRewardClaimed && stats.referredByCode) {
@@ -648,31 +589,27 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
         'success'
       );
     } else {
-      addNotification('Ad Completed!', `+3 slaps refilled & +${awardedAdSp} SP earned!`, 'success');
+      addNotification('Ad Completed!', `+${slapsRestored} slaps refilled & +${awardedAdSp} SP earned!`, 'success');
     }
 
     updateStatsDirectly(updateObj);
   };
 
-  const handleEarnAdFailedOrSkipped = () => {
-    if ((window as any).currentEarnAdTimer) {
-      clearInterval((window as any).currentEarnAdTimer);
-    }
-    setIsAdPlaying(false);
-    setAdFinished(false);
+  const handleEarnAdFailedOrSkipped = (reason?: string) => {
     setActiveModal(null);
     sound.playError();
-    addNotification('Ad Incomplete', 'Ad didn\'t complete, try again', 'info');
+    addNotification('Ad Incomplete', reason || 'Ad did not complete. Watch full video to earn rewards!', 'info');
   };
 
   const hasFreeSpins = (stats.freeSpins || 0) > 0;
 
   // Start Wheel Spin
-  const startSpin = () => {
+  const startSpin = async () => {
     if (isSpinning) return;
     
-    // 5-hour cooldown check unless player has free spins
-    if (isWheelOnCooldown && !hasFreeSpins) {
+    // Server-verified 5-hour cooldown check
+    const verification = await verifyWheelSpinServer(stats.lastWheelSpin, stats.freeSpins);
+    if (!verification.isEligible) {
       sound.playError();
       addNotification('Lucky Wheel Cooldown', 'You can only spin once every 5 hours!', 'info');
       return;
@@ -689,7 +626,7 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
       });
     } else {
       updateStatsDirectly({
-        lastWheelSpin: new Date().toISOString()
+        lastWheelSpin: new Date(verification.serverTime).toISOString()
       });
     }
 
@@ -1027,16 +964,29 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
 
       </div>
 
+      {/* HilltopAds VAST Rewarded Video Modal (Zone 7333693) */}
+      <HilltopRewardedAdModal
+        isOpen={activeModal === 'ad'}
+        onClose={() => setActiveModal(null)}
+        onRewardSuccess={handleEarnAdSuccess}
+        onNoFillOrError={(msg) => {
+          sound.playError();
+          addNotification('Video Ad', msg || 'No video ads available right now, try again later', 'info');
+        }}
+        adsWatchedToday={stats.adsWatchedToday || 0}
+        maxDailyAds={20}
+      />
+
       {/* --- MODALS --- */}
       <AnimatePresence>
-        {activeModal && (
+        {activeModal && activeModal !== 'ad' && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4">
             {/* Backdrop */}
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.6 }}
               exit={{ opacity: 0 }}
-              onClick={() => { if (!isAdPlaying && !isSpinning) setActiveModal(null); }}
+              onClick={() => { if (!isSpinning) setActiveModal(null); }}
               className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs"
             />
 
@@ -1051,7 +1001,7 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
             >
               
               {/* Close Button */}
-              {!isAdPlaying && !isSpinning && !offerCompleting && (
+              {!isSpinning && !offerCompleting && (
                 <button 
                   onClick={() => {
                     setActiveModal(null);
@@ -1064,65 +1014,6 @@ export default function EarnView({ stats, updateCoinsAndXp, updateStatsDirectly,
                 >
                   <X className="w-4 h-4 text-slate-900" />
                 </button>
-              )}
-
-              {/* 1. VIDEO AD MODAL */}
-              {activeModal === 'ad' && (
-                <div className="flex flex-col items-center py-4">
-                  {isAdPlaying ? (
-                    <>
-                      <div className="w-16 h-16 bg-[#FF3B77] text-white rounded-full flex items-center justify-center animate-bounce border-3 border-slate-900 mb-4 shadow-[2px_2.5px_0px_0px_#000]">
-                        <PlayCircle className="w-9 h-9" />
-                      </div>
-                      <h3 className="text-xl font-black text-slate-950">Watching Sponsor Ad</h3>
-                      <p className="text-slate-500 font-bold text-xs mt-2 text-center leading-relaxed">
-                        Hold tight! Your slap refill will trigger in:
-                      </p>
-                      
-                      {/* Big clock ticker */}
-                      <div className="flex items-center gap-2 mt-4 bg-[#FFEAF0] border-3 border-slate-900 px-6 py-3 rounded-2xl text-2xl font-black text-[#FF3B77] shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)]">
-                        <Clock className="w-6 h-6 stroke-[3px] animate-spin" />
-                        <span>{adCountdown}s</span>
-                      </div>
-
-                      <div className="w-full mt-4">
-                        <RewardedAdScript
-                          onAdCompleted={handleEarnAdSuccess}
-                          onUserEarnedReward={handleEarnAdSuccess}
-                          onAdFailedToShow={handleEarnAdFailedOrSkipped}
-                          onAdSkipped={handleEarnAdFailedOrSkipped}
-                        />
-                      </div>
-
-                      <button
-                        onClick={handleEarnAdFailedOrSkipped}
-                        className="mt-4 w-full py-2.5 rounded-xl border-2 border-slate-300 bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-black text-xs uppercase tracking-wider transition-all"
-                      >
-                        Cancel / Skip Ad
-                      </button>
-                    </>
-                  ) : adFinished ? (
-                    <>
-                      <div className="w-16 h-16 bg-emerald-400 text-slate-950 rounded-full flex items-center justify-center border-3 border-slate-900 mb-4 shadow-[2px_2.5px_0px_0px_#000]">
-                        <Sparkles className="w-9 h-9" />
-                      </div>
-                      <h3 className="text-2xl font-black text-emerald-600 text-center">Reward Unlocked!</h3>
-                      <p className="text-slate-600 font-bold text-sm mt-2 text-center leading-relaxed px-2">
-                        You successfully refilled <strong className="text-slate-900 font-black">+3 slaps available</strong> for today. Go slap!
-                      </p>
-                      <div className="mt-3 bg-amber-50 border-2 border-amber-300 text-amber-900 px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]">
-                        <span>📺 Permanent Lifetime Watched Ads:</span>
-                        <span className="text-[#FF3B77] font-black">{stats.totalAdsWatchedLifetime || 0}</span>
-                      </div>
-                      <button
-                        onClick={() => setActiveModal(null)}
-                        className="mt-6 w-full font-black text-sm py-3 rounded-2xl border-4 border-slate-900 bg-emerald-400 hover:bg-emerald-500 text-slate-950 shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] transition-all active:scale-95"
-                      >
-                        Awesome!
-                      </button>
-                    </>
-                  ) : null}
-                </div>
               )}
 
               {/* 2. SPIN THE WHEEL MODAL */}

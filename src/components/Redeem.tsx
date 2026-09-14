@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { RedemptionOption, UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from '../types';
-import { addWithdrawalToFirestore } from '../lib/firebase';
+import { addWithdrawalToFirestore, createWithdrawalApi } from '../lib/firebase';
 import { syncServerTime, getServerNow, verifyWithdrawalServer } from '../utils/serverTime';
 import { AnimatedOdometer } from './AnimatedOdometer';
 
@@ -72,7 +72,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
         logo: '💲',
         color: '#26A17B',
         rates: [
-          { coins: 10000, value: 1 },
+          { coins: 20000, value: 2 },
           { coins: 50000, value: 5 },
           { coins: 100000, value: 10 }
         ]
@@ -87,7 +87,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
         logo: '💳',
         color: '#003087',
         rates: [
-          { coins: 10000, value: 1 },
+          { coins: 20000, value: 2 },
           { coins: 50000, value: 5 },
           { coins: 100000, value: 10 }
         ]
@@ -155,6 +155,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState<boolean>(false);
   const [selectedOption, setSelectedOption] = useState<RedemptionOption | null>(null);
   const [selectedRateIndex, setSelectedRateIndex] = useState<number>(0);
+  const [cryptoNetwork, setCryptoNetwork] = useState<'BEP-20' | 'TRC-20' | 'Polygon'>('BEP-20');
   const [payoutDestination, setPayoutDestination] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [redeemSuccess, setRedeemSuccess] = useState<boolean>(false);
@@ -210,6 +211,7 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
     // Open modal & pre-select first option from dynamic catalog
     setSelectedOption(catalog[0]);
     setSelectedRateIndex(0);
+    setCryptoNetwork('BEP-20');
     setPayoutDestination('');
     setRedeemSuccess(false);
     setIsWithdrawModalOpen(true);
@@ -243,51 +245,47 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
     setIsSubmitting(true);
     sound.playSlap();
 
-    // 2 seconds processing
-    setTimeout(() => {
-      const success = deductCoins(rate.coins, `${selectedOption.name} Withdrawal`, 'Redemption');
+    const isUsdt = selectedOption.brand === 'usdt';
+    const fullMethodName = isUsdt ? `USDT (${cryptoNetwork})` : selectedOption.name;
+    const formattedDestination = isUsdt ? `${cryptoNetwork}: ${payoutDestination.trim()}` : payoutDestination.trim();
+
+    try {
+      // 1. Submit through secure atomic server API (Fix 7)
+      const result = await createWithdrawalApi({
+        method: fullMethodName,
+        destination: formattedDestination,
+        spAmount: rate.coins,
+        usdAmount: rate.value,
+      });
+
       setIsSubmitting(false);
+      sound.playSuccess();
 
-      if (success) {
-        sound.playSuccess();
-        // Reset 3 referrals quota for current withdrawal cycle
-        updateStatsDirectly?.({
-          referralsForCurrentWithdrawal: 0
-        });
+      // Reset referrals count for withdrawal cycle in UI
+      updateStatsDirectly?.({
+        referralsForCurrentWithdrawal: 0,
+      });
 
-        // Sync withdrawal request to Firestore real-time collection & notify local components
-        const newWithdrawalId = 'wd-' + Date.now().toString(36);
-        const newWithdrawalPayload = {
-          id: newWithdrawalId,
-          userId: stats.uid || stats.username || 'SlapUser',
-          username: stats.username || 'SlapUser',
-          amountUsd: rate.value,
-          spDeducted: rate.coins,
-          method: selectedOption.name,
-          payoutDestination: payoutDestination,
-          status: 'Pending' as const,
-          dateRequested: 'Just now',
-          createdAt: Date.now()
-        };
-        addWithdrawalToFirestore(newWithdrawalPayload);
-        try {
-          window.dispatchEvent(new CustomEvent('slapearn_withdrawal_created', { detail: newWithdrawalPayload }));
-        } catch {
-          // Ignore event dispatch errors
-        }
-
-        setPayoutTxDetails({
-          value: rate.value,
-          destination: payoutDestination,
-          brandName: selectedOption.name
-        });
-        setRedeemSuccess(true);
-        addNotification('Withdrawal Placed!', `Deducted ${rate.coins} SP. Referral quota reset for your next withdrawal.`, 'success');
-      } else {
-        sound.playError();
-        addNotification('Error Processing Request', 'Something went wrong, please try again.', 'info');
-      }
-    }, 2000);
+      setPayoutTxDetails({
+        value: rate.value,
+        destination: formattedDestination,
+        brandName: fullMethodName,
+      });
+      setRedeemSuccess(true);
+      addNotification('Withdrawal Placed!', `Deducted ${rate.coins.toLocaleString()} SP for $${rate.value} ${fullMethodName}.`, 'success');
+    } catch (err: any) {
+      console.warn('[Withdrawal] Server rejected withdrawal request:', err);
+      setIsSubmitting(false);
+      sound.playError();
+      const userFriendlyMsg = err.message?.includes('ACCOUNT_TOO_NEW')
+        ? 'Account must be at least 24 hours old to request cashouts.'
+        : err.message?.includes('VPN_OR_PROXY')
+        ? 'Withdrawals cannot be processed over VPN or Proxy connections.'
+        : err.message?.includes('DAILY_WITHDRAWAL_CAP')
+        ? 'Daily withdrawal limit reached. Please try again tomorrow.'
+        : err.message || 'Unable to process withdrawal. Please verify eligibility and try again.';
+      addNotification('Withdrawal Request Denied', userFriendlyMsg, 'info');
+    }
   };
 
   // Helper for Transaction Icon styling
@@ -596,12 +594,46 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
                     </div>
                   </div>
 
+                  {/* USDT Network Selection */}
+                  {selectedOption.brand === 'usdt' && (
+                    <div>
+                      <label className="block text-xs font-black uppercase tracking-wider text-slate-600 mb-1.5">
+                        Select USDT Network:
+                      </label>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(['BEP-20', 'TRC-20', 'Polygon'] as const).map((net) => {
+                          const isNetSelected = cryptoNetwork === net;
+                          return (
+                            <button
+                              key={net}
+                              type="button"
+                              onClick={() => {
+                                sound.playSlap();
+                                setCryptoNetwork(net);
+                              }}
+                              className={`py-2 px-1 rounded-xl text-center font-black text-xs border-2 transition-all cursor-pointer ${
+                                isNetSelected
+                                  ? 'bg-[#A855F7] border-slate-900 text-white shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] scale-[1.02]'
+                                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              <span className="block leading-none">{net}</span>
+                              <span className="text-[9px] font-bold opacity-80 mt-0.5 block">
+                                {net === 'BEP-20' ? 'BNB Chain' : net === 'TRC-20' ? 'Tron' : 'MATIC'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Payout Details */}
                   <div className="bg-white border-3 border-slate-900 rounded-2xl p-3 shadow-[2px_2px_0px_0px_rgba(15,23,42,1)] space-y-2 text-xs font-bold text-slate-800">
                     <div className="flex items-center justify-between border-b-2 border-slate-100 pb-1.5">
                       <span className="text-slate-500 font-black text-[11px] uppercase">Payout:</span>
                       <span className="font-black text-slate-950 bg-cyan-100 text-cyan-900 px-2 py-0.5 rounded-lg border border-slate-900 text-[11px]">
-                        USDT (TRC20)
+                        {selectedOption.brand === 'usdt' ? `USDT (${cryptoNetwork})` : selectedOption.name}
                       </span>
                     </div>
                     <div className="flex items-center justify-between border-b-2 border-slate-100 pb-1.5">
@@ -622,7 +654,9 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
                   <div className="bg-amber-100 border-2 border-slate-900 rounded-xl p-2.5 flex items-start gap-2 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]">
                     <span className="text-sm shrink-0">⚠️</span>
                     <p className="text-[11px] font-black text-slate-950 leading-snug">
-                      Make sure your USDT (TRC20) wallet address is correct.
+                      {selectedOption.brand === 'usdt'
+                        ? `Make sure your USDT (${cryptoNetwork}) wallet address is correct. Transfers cannot be reversed.`
+                        : `Make sure your ${selectedOption.name} recipient information is correct.`}
                     </p>
                   </div>
 
@@ -630,14 +664,26 @@ export default function Redeem({ stats, deductCoins, addNotification, transactio
                   <form onSubmit={handleSubmitRedemption} className="space-y-3 pt-1">
                     <div>
                       <label className="block text-xs font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                        USDT Wallet Address (TRC20)
+                        {selectedOption.brand === 'usdt'
+                          ? `USDT Wallet Address (${cryptoNetwork})`
+                          : selectedOption.brand === 'paypal'
+                            ? 'PayPal Email Address'
+                            : `${selectedOption.name} Recipient Info`}
                       </label>
                       <input
-                        type="text"
+                        type={selectedOption.brand === 'paypal' ? 'email' : 'text'}
                         required
                         value={payoutDestination}
                         onChange={(e) => setPayoutDestination(e.target.value)}
-                        placeholder="e.g. T9yD... or TRC20 Wallet Address"
+                        placeholder={
+                          selectedOption.brand === 'usdt'
+                            ? cryptoNetwork === 'TRC-20'
+                              ? 'e.g. T... (Tron TRC-20 Address)'
+                              : 'e.g. 0x... (EVM / BEP-20 / Polygon Address)'
+                            : selectedOption.brand === 'paypal'
+                              ? 'your-paypal@email.com'
+                              : 'Enter destination...'
+                        }
                         className="w-full bg-white border-3 border-slate-900 rounded-xl py-2.5 px-3.5 text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-[#FF3B77] transition-all shadow-[1px_1px_0px_0px_rgba(15,23,42,1)]"
                       />
                     </div>

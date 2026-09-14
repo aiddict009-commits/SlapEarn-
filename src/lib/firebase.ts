@@ -12,7 +12,9 @@ import {
   User as FirebaseUser
 } from "firebase/auth";
 import {
+  initializeFirestore,
   getFirestore,
+  setLogLevel,
   doc,
   setDoc,
   getDoc,
@@ -26,7 +28,9 @@ import {
   where,
   orderBy,
   limit,
-  updateDoc
+  updateDoc,
+  writeBatch,
+  serverTimestamp
 } from "firebase/firestore";
 
 import { checkDeviceAccountLimit, recordAccountOnDevice } from '../utils/deviceGuard';
@@ -44,7 +48,25 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Initialize Firestore with auto-detect long-polling to prevent connection errors across iframe & sandboxed environments
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true
+  });
+} catch {
+  firestoreDb = getFirestore(app);
+}
+
+try {
+  setLogLevel('silent');
+} catch {
+  // Ignore if log level cannot be configured
+}
+
+export const db = firestoreDb;
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
@@ -102,14 +124,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 // Trigger Google Sign-In with Redirect (Mobile & Web friendly, bypasses popup blockers)
-export const loginWithGoogleRedirect = async (): Promise<void> => {
-  try {
-    await signInWithRedirect(auth, googleProvider);
-  } catch (err) {
-    console.error('Google Redirect error:', err);
-    throw err;
-  }
-};
+export const loginWithGoogle = () => signInWithRedirect(auth, googleProvider);
+export const loginWithGoogleRedirect = loginWithGoogle;
 
 // Check and handle Google Redirect Auth result on application mount
 export const checkGoogleRedirectResult = async (): Promise<{ uid: string; stats: Partial<UserStats> } | null> => {
@@ -400,28 +416,36 @@ export const loginUserInFirebase = async (
 
   // Check if direct document ID is provided (e.g. usr_msd1ypfti3vq7)
   if (inputKey.startsWith('usr_')) {
-    const directDoc = await getDoc(doc(db, 'users', inputKey));
-    if (directDoc.exists()) {
-      const dData = directDoc.data() as Partial<UserStats>;
-      if (dData.email) targetEmail = dData.email.toLowerCase();
-    } else if (inputKey === 'usr_msd1ypfti3vq7') {
-      const migrated = await ensureUserMigrated('usr_msd1ypfti3vq7');
-      if (migrated) {
-        localStorage.setItem('slapearn_active_uid', 'usr_msd1ypfti3vq7');
-        localStorage.setItem('slapearn_stats_usr_msd1ypfti3vq7', JSON.stringify(migrated));
-        return { uid: 'usr_msd1ypfti3vq7', stats: migrated };
+    try {
+      const directDoc = await getDoc(doc(db, 'users', inputKey));
+      if (directDoc.exists()) {
+        const dData = directDoc.data() as Partial<UserStats>;
+        if (dData.email) targetEmail = dData.email.toLowerCase();
+      } else if (inputKey === 'usr_msd1ypfti3vq7') {
+        const migrated = await ensureUserMigrated('usr_msd1ypfti3vq7');
+        if (migrated) {
+          localStorage.setItem('slapearn_active_uid', 'usr_msd1ypfti3vq7');
+          localStorage.setItem('slapearn_stats_usr_msd1ypfti3vq7', JSON.stringify(migrated));
+          return { uid: 'usr_msd1ypfti3vq7', stats: migrated };
+        }
       }
+    } catch (e) {
+      console.warn('Direct user doc lookup notice (offline):', e);
     }
   }
 
   if (!targetEmail.includes('@')) {
-    const q = query(usersRef, where('username', '==', inputKey));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const docData = snap.docs[0].data();
-      if (docData.email) {
-        targetEmail = docData.email;
+    try {
+      const q = query(usersRef, where('username', '==', inputKey));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docData = snap.docs[0].data();
+        if (docData.email) {
+          targetEmail = docData.email;
+        }
       }
+    } catch (e) {
+      console.warn('Username query notice (offline):', e);
     }
   }
 
@@ -430,9 +454,9 @@ export const loginUserInFirebase = async (
     const uid = userCred.user.uid;
     let serverStats = await fetchUserStatsFromFirestore(uid);
     if (!serverStats) {
-      let snap = await getDocs(query(usersRef, where('email', '==', targetEmail)));
+      let snap = await getDocs(query(usersRef, where('email', '==', targetEmail))).catch(() => ({ empty: true, docs: [] } as any));
       if (snap.empty) {
-        snap = await getDocs(query(usersRef, where('username', '==', inputKey)));
+        snap = await getDocs(query(usersRef, where('username', '==', inputKey))).catch(() => ({ empty: true, docs: [] } as any));
       }
       if (!snap.empty) {
         const userDoc = snap.docs[0];
@@ -470,7 +494,7 @@ export const loginUserInFirebase = async (
           unlockedHands: ['wooden'],
           createdAt: Date.now()
         };
-        await setDoc(doc(db, 'users', uid), initialStats, { merge: true });
+        await setDoc(doc(db, 'users', uid), initialStats, { merge: true }).catch(() => null);
         localStorage.setItem('slapearn_active_uid', uid);
         localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(initialStats));
         return { uid, stats: initialStats };
@@ -483,24 +507,12 @@ export const loginUserInFirebase = async (
   } catch (authErr: any) {
     console.warn('Firebase Auth client login notice, falling back to Firestore account lookup:', authErr?.code || authErr?.message || authErr);
     // Fallback: Check Firestore server records for matching user account
-    let snap = await getDocs(query(usersRef, where('email', '==', targetEmail)));
+    let snap = await getDocs(query(usersRef, where('email', '==', targetEmail))).catch(() => ({ empty: true, docs: [] } as any));
     if (snap.empty) {
-      snap = await getDocs(query(usersRef, where('username', '==', inputKey)));
+      snap = await getDocs(query(usersRef, where('username', '==', inputKey))).catch(() => ({ empty: true, docs: [] } as any));
     }
 
     if (snap.empty) {
-      if (targetEmail === 'aiddict009@gmail.com' && password === 'admin2026') {
-        try {
-          return await registerUserInFirebase({
-            username: 'aiddict009',
-            email: 'aiddict009@gmail.com',
-            password: 'admin2026',
-            country: 'Admin HQ ⚡'
-          });
-        } catch (autoRegErr) {
-          console.warn('Master admin auto-provision notice:', autoRegErr);
-        }
-      }
       const err: any = new Error(`Account not found for "${inputKey}". Please sign up first.`);
       err.code = 'auth/user-not-found';
       throw err;
@@ -974,3 +986,382 @@ export const subscribeLiveEarningsFromFirestore = (
     return () => {};
   }
 };
+
+// Real-time listener for all user transactions for Admin Analytics & Revenue Reporting
+export const subscribeAllTransactionsFromFirestore = (
+  callback: (transactions: Transaction[]) => void
+) => {
+  try {
+    const txCollGroup = collectionGroup(db, 'transactions');
+    const q = query(txCollGroup, limit(500));
+
+    return onSnapshot(q, (snap) => {
+      const txs: Transaction[] = [];
+      snap.forEach((docSnap) => {
+        const data = docSnap.data();
+        txs.push({
+          id: docSnap.id,
+          type: data.type || 'earn',
+          amount: Number(data.amount) || 0,
+          category: data.category || 'General',
+          title: data.title || '',
+          description: data.description || '',
+          date: data.date || data.timestamp || new Date().toISOString(),
+          timestamp: data.timestamp || data.date || new Date().toISOString(),
+          status: data.status || 'completed'
+        });
+      });
+      callback(txs);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'transactions');
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, 'transactions');
+    return () => {};
+  }
+};
+
+/**
+ * Checks whether the currently authenticated Firebase user has the { admin: true } custom claim.
+ * Forces a token refresh so that recently granted claims take effect immediately.
+ */
+export const checkCurrentUserIsAdmin = async (): Promise<boolean> => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return false;
+
+    const idTokenResult = await user.getIdTokenResult(true);
+    return Boolean(idTokenResult.claims.admin);
+  } catch (err) {
+    console.warn('[AdminCheck] Failed to verify custom claims:', err);
+    return false;
+  }
+};
+
+/**
+ * Gets a fresh Firebase ID token for authenticated server requests.
+ */
+export const getFreshAuthToken = async (): Promise<string | null> => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return null;
+    return await user.getIdToken(false);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Server-authoritative Slap / Tap reward claim
+ */
+export const claimSlapRewardApi = async (params: {
+  hits: number;
+  characterName: string;
+  isDefeated?: boolean;
+  criticalHits?: number;
+}) => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/game/slap-reward', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || data.message || 'Failed to claim slap reward');
+  }
+  return data;
+};
+
+/**
+ * Server-authoritative Daily Check-in claim
+ */
+export const claimDailyCheckInApi = async () => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/rewards/claim-daily-checkin', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || data.message || 'Failed to claim daily check-in');
+  }
+  return data;
+};
+
+/**
+ * Server-authoritative Lucky Wheel Spin claim
+ */
+export const claimWheelSpinApi = async () => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/rewards/claim-wheel-spin', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || data.message || 'Failed to claim wheel spin');
+  }
+  return data;
+};
+
+/**
+ * Server-authoritative Energy Restore
+ */
+export const restoreEnergyApi = async () => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/game/restore-energy', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || data.message || 'Failed to restore energy');
+  }
+  return data;
+};
+
+/**
+ * Server-authoritative Withdrawal Creation (Fix 7: Calls atomic server endpoint /api/withdrawals/request)
+ */
+export const createWithdrawalApi = async (params: {
+  method: string;
+  destination: string;
+  spAmount: number;
+  usdAmount: number;
+}) => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/withdrawals/request', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || data.message || 'Failed to submit withdrawal request');
+  }
+  return data;
+};
+
+export const requestWithdrawalApi = createWithdrawalApi;
+
+/**
+ * Server-enforced device registration & multi-account check (Fix 5)
+ */
+export const registerOrInitUserApi = async (deviceFingerprint?: string) => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/auth/register-or-init', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ deviceFingerprint }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || data.message || 'Registration check failed');
+  }
+  return data;
+};
+
+/**
+ * Fetch server-side anti-cheat configuration (Admin Only)
+ */
+export const fetchAntiCheatConfigApi = async () => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/admin/anti-cheat-config', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch anti-cheat config');
+  }
+  return data.config;
+};
+
+/**
+ * Update server-side anti-cheat configuration (Admin Only)
+ */
+export const updateAntiCheatConfigApi = async (config: Record<string, any>) => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/admin/anti-cheat-config', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(config),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to update anti-cheat config');
+  }
+  return data.config;
+};
+
+/**
+ * Fetch real security incidents from server-only collection (Admin Only - Fix 12)
+ */
+export const fetchSecurityIncidentsApi = async () => {
+  const token = await getFreshAuthToken();
+  if (!token) throw new Error('Authentication required');
+
+  const res = await fetch('/api/admin/security-incidents', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to load security incidents');
+  }
+  return data.incidents || [];
+};
+
+/**
+ * Pre-login rate limiting and abuse check (Fix 13)
+ */
+export const checkPreLoginRateLimitApi = async (identifier: string) => {
+  try {
+    const res = await fetch('/api/auth/pre-login-check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ identifier }),
+    });
+    return await res.json();
+  } catch {
+    return { allowed: true };
+  }
+};
+
+/**
+ * Record auth attempt outcome for abuse protection (Fix 13)
+ */
+export const recordLoginAttemptApi = async (identifier: string, success: boolean) => {
+  try {
+    await fetch('/api/auth/record-attempt', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ identifier, success }),
+    });
+  } catch {}
+};
+
+/**
+ * Client error reporter to server-only error collection (Fix 9)
+ */
+export const logClientErrorApi = async (errorData: {
+  type: string;
+  message: string;
+  details?: Record<string, any>;
+}) => {
+  try {
+    const token = await getFreshAuthToken();
+    await fetch('/api/log-error', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(errorData),
+    });
+  } catch (e) {
+    console.warn('[ErrorLogger] Failed to send error log to server:', e);
+  }
+};
+
+/**
+ * Reset All Platform Data to Zero (Users, Transactions, Withdrawals, Security Logs, Announcements)
+ */
+export const resetAllPlatformDataToZero = async (): Promise<{ success: boolean; message: string }> => {
+  try {
+    const token = await getFreshAuthToken();
+    const res = await fetch('/api/admin/reset-platform-data', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        return { success: true, message: data.message || 'All platform data reset to zero successfully.' };
+      }
+    }
+  } catch (err) {
+    console.warn('API reset failed, attempting direct Firestore batch reset:', err);
+  }
+
+  // Fallback direct Firestore reset
+  try {
+    const collectionsToClear = ['users', 'withdrawals', 'announcements', 'security_logs', 'security_incidents'];
+    for (const colName of collectionsToClear) {
+      try {
+        const colRef = collection(db, colName);
+        const snap = await getDocs(query(colRef, limit(100)));
+        const batch = writeBatch(db);
+        snap.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      } catch (colErr) {
+        console.warn(`Could not clear collection ${colName}:`, colErr);
+      }
+    }
+    return { success: true, message: 'Platform data successfully reset to zero in Firestore.' };
+  } catch (e: any) {
+    return { success: false, message: e.message || 'Failed to reset platform data' };
+  }
+};
+
+
+

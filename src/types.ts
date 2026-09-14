@@ -3,8 +3,10 @@ export interface Transaction {
   type: 'earn' | 'redeem' | 'bonus';
   amount: number;
   title: string;
-  category: 'Daily Check-in' | 'Slap Game' | 'Survey' | 'Ad' | 'Offerwall' | 'Redemption' | 'Level Up' | 'Weekly Leaderboard Reward' | 'Referral';
+  category: 'Daily Check-in' | 'Slap Game' | 'Survey' | 'Ad' | 'Offerwall' | 'Redemption' | 'Level Up' | 'Weekly Leaderboard Reward' | 'Referral' | string;
   timestamp: string;
+  date?: string;
+  description?: string;
   status: 'completed' | 'pending' | 'failed';
 }
 
@@ -178,7 +180,7 @@ export interface EconomyConfig {
 
 export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
   spPerUsdRatio: 10000,
-  minCashoutUsd: 0.50,
+  minCashoutUsd: 2.00, // 20,000 SP = $2.00 USDT
   maxCashoutUsdPerReq: 50.00,
   requiredReferralsForCashout: 0,
   instantApprovalUsdThreshold: 2.00,

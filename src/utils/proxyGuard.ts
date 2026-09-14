@@ -258,22 +258,6 @@ class ProxyGuardEngine {
           });
         }
 
-        // Check for Browser Timezone vs IP Timezone Mismatch
-        const tzMismatch = this.checkTimezoneDiscrepancy(data.timezone?.id);
-        if (tzMismatch) {
-          this.isScanning = false;
-          return this.applyDetectionResult(
-            true,
-            data.ip,
-            data.connection?.org || data.connection?.isp,
-            'Timezone Location Discrepancy (VPN Tunnel)',
-            tzMismatch,
-            { country: data.country, city: data.city, timezone: data.timezone?.id }
-          );
-        }
-
-        // WebRTC IP difference check removed to avoid false positives on mobile CGNAT carrier networks
-
         // Clean status confirmed by primary endpoint
         this.isScanning = false;
         return this.applyDetectionResult(false, data.ip, data.connection?.org || data.connection?.isp, null, null, {
@@ -294,19 +278,6 @@ class ProxyGuardEngine {
             city: data.city,
             timezone: data.timezone,
           });
-        }
-
-        const tzMismatch = this.checkTimezoneDiscrepancy(data.timezone);
-        if (tzMismatch) {
-          this.isScanning = false;
-          return this.applyDetectionResult(
-            true,
-            data.ip,
-            data.org || data.asn,
-            'Timezone Location Discrepancy (VPN Tunnel)',
-            tzMismatch,
-            { country: data.country_name, city: data.city, timezone: data.timezone }
-          );
         }
 
         this.isScanning = false;
@@ -470,29 +441,6 @@ class ProxyGuardEngine {
     } catch {
       // Ignore
     }
-    return null;
-  }
-
-  // Timezone Discrepancy Heuristic
-  private checkTimezoneDiscrepancy(ipTimezone: string | undefined | null): string | null {
-    if (!ipTimezone) return null;
-
-    try {
-      const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (!browserTz) return null;
-
-      // Extract general region (e.g. "Africa/Lagos" -> continent "Africa", region "Lagos")
-      const browserContinent = browserTz.split('/')[0];
-      const ipContinent = ipTimezone.split('/')[0];
-
-      // If browser is in Africa/Johannesburg or Africa/Lagos, but IP is in America or Europe or Asia
-      if (browserContinent === 'Africa' && ipContinent !== 'Africa' && ipContinent !== 'Etc') {
-        return `Location Mismatch: Your browser timezone (${browserTz}) does not match your IP geolocation timezone (${ipTimezone}). VPN tunneling detected.`;
-      }
-    } catch {
-      // Ignore
-    }
-
     return null;
   }
 

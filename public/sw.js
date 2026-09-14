@@ -1,31 +1,33 @@
-const CACHE_NAME = 'slapearn-pwa-v1';
+// Service Worker for SlapEarn PWA
+const CACHE_NAME = 'slapearn-cache-v3';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-512-maskable.png',
   '/icon-192.png',
   '/icon-512.png',
   '/apple-touch-icon.png'
 ];
 
-// Install Event
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Pre-caching static app shell');
-      return cache.addAll(STATIC_ASSETS);
-    }).then(() => self.skipWaiting())
+      return cache.addAll(STATIC_ASSETS).catch((err) => {
+        console.warn('[SW] Cache addAll warning:', err);
+      });
+    })
   );
 });
 
-// Activate Event
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cache) => {
           if (cache !== CACHE_NAME) {
-            console.log('[SW] Clearing old cache:', cache);
+            console.log('[SW] Deleting old cache:', cache);
             return caches.delete(cache);
           }
         })
@@ -34,18 +36,32 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event - Stale While Revalidate for assets, Network First for HTML
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests
   if (event.request.method !== 'GET') return;
-
-  // Skip chrome-extension or external cross-origin requests that might fail
   const url = new URL(event.request.url);
   if (url.origin !== location.origin) return;
 
+  // For HTML navigation requests, use Network-First strategy so users always get the latest page without stale locks
+  if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match('/index.html') || caches.match(event.request);
+        })
+    );
+    return;
+  }
+
+  // For static assets (images, icons, etc.), use cache-first with network fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+      return fetch(event.request).then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -53,20 +69,7 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
-      }).catch((err) => {
-        console.log('[SW] Network fetch failed, falling back to cache:', err);
-        return cachedResponse;
       });
-
-      // Return cached version immediately if available, while fetching update in background
-      return cachedResponse || fetchPromise;
     })
   );
-});
-
-// Listen for update message
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
 });

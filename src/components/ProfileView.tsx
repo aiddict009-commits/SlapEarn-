@@ -22,7 +22,8 @@ import {
   Sparkles,
   Shield,
   AlertTriangle,
-  Ban
+  Ban,
+  FileText
 } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { UserStats, Transaction } from '../types';
@@ -41,8 +42,10 @@ interface ProfileViewProps {
   updateCoinsAndXp?: (coinReward: number, xpReward: number, category: Transaction['category'], title: string) => void;
   onOpenNotifications?: () => void;
   authUser?: { email: string; username: string } | null;
+  isAdmin?: boolean;
   onOpenAdminHub?: () => void;
   onNavigateTab?: (tab: 'home' | 'earn' | 'slap' | 'wallet' | 'profile') => void;
+  onOpenLegal?: (tab: 'terms' | 'privacy') => void;
 }
 
 export default function ProfileView({ 
@@ -58,8 +61,10 @@ export default function ProfileView({
   updateCoinsAndXp,
   onOpenNotifications,
   authUser,
+  isAdmin = false,
   onOpenAdminHub,
-  onNavigateTab
+  onNavigateTab,
+  onOpenLegal
 }: ProfileViewProps) {
   
   // State for modals
@@ -285,8 +290,8 @@ export default function ProfileView({
 
       {/* Action Settings Item Cards Stack */}
       <div className="flex flex-col gap-2.5" id="actions-stack-container">
-        {/* Admin Dashboard Hub Toggle Button - ONLY VISIBLE TO aiddict009@gmail.com */}
-        {(authUser?.email?.toLowerCase() === 'aiddict009@gmail.com' || stats?.email?.toLowerCase() === 'aiddict009@gmail.com') && (
+        {/* Admin Dashboard Hub Toggle Button - ONLY VISIBLE TO VERIFIED ADMINS VIA CUSTOM CLAIM */}
+        {isAdmin && (
           <button
             onClick={() => { 
               sound.playSuccess(); 
@@ -361,6 +366,26 @@ export default function ProfileView({
           <div className="flex items-center gap-3">
             <QuestionIcon className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
             <span className="font-black text-slate-950 text-[14px]">Help & support</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
+        </button>
+
+        {/* Terms & Privacy Item */}
+        <button
+          onClick={() => { 
+            sound.playSlap(); 
+            if (onOpenLegal) {
+              onOpenLegal('terms');
+            } else {
+              window.location.href = '/terms';
+            }
+          }}
+          className="bg-white rounded-[24px] border-4 border-slate-900 p-3.5 flex items-center justify-between shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] active:scale-98 cursor-pointer transition-all w-full text-left"
+          id="action-legal-btn"
+        >
+          <div className="flex items-center gap-3">
+            <FileText className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
+            <span className="font-black text-slate-950 text-[14px]">Terms & Privacy Policy</span>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-950 stroke-[2.5px]" />
         </button>

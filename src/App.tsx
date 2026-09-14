@@ -22,17 +22,26 @@ import {
 import { sound } from './utils/sound';
 import { UserStats, Transaction, EconomyConfig, DEFAULT_ECONOMY_CONFIG } from './types';
 import { processTitleUnlocks } from './utils/titles';
-import { timeGuard, TimeSecurityStatus } from './utils/timeGuard';
+import {
+  timeManager,
+  TimeSyncState,
+  resyncServerTime,
+  dismissTimeWarning,
+  getServerNow,
+  getServerDateString,
+  getRemainingTimeToDailyReset,
+} from './utils/timeManager';
 import { proxyGuard, NetworkSecurityStatus } from './utils/proxyGuard';
 import {
   auth,
+  db,
   logoutUserInFirebase,
   addTransactionToFirestore,
   fetchTransactionsFromFirestore,
   addNotificationToFirestore,
   subscribeAnnouncementsFromFirestore,
   subscribeEconomyConfigFromFirestore,
-  checkGoogleRedirectResult
+  registerOrInitUserApi
 } from './lib/firebase';
 import {
   loadUserData,
@@ -41,7 +50,8 @@ import {
   saveOnEvent,
   resetCloudSaveState
 } from './lib/cloudSave';
-import { onAuthStateChanged } from 'firebase/auth';
+import { signInWithRedirect, getRedirectResult, onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 // Import subcomponents
 import Home from './components/Home';
@@ -56,6 +66,7 @@ import AdminDashboard from './components/AdminDashboard';
 import { AnimatedOdometer } from './components/AnimatedOdometer';
 import LiveEarningsPopup from './components/LiveEarningsPopup';
 import ProxyAlertOverlay from './components/ProxyAlertOverlay';
+import LegalPage from './components/LegalPage';
 
 interface NotificationToast {
   id: string;
@@ -80,7 +91,7 @@ const INITIAL_STATS: UserStats = {
   adsWatchedToday: 0,
   totalAdsWatchedLifetime: 0,
   hasClaimedStarterPack: true,
-  lastActiveDate: new Date().toDateString(),
+  lastActiveDate: getServerDateString(),
   selectedHand: 'wooden',
   unlockedHands: ['wooden'],
   referralsList: [],
@@ -133,54 +144,170 @@ export default function App() {
   // Auth state driven by Firebase Auth & Cloud Save
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
+  // Legal route state for direct URL visits to /terms or /privacy
+  const [legalRoute, setLegalRoute] = useState<'terms' | 'privacy' | null>(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase();
+      if (path === '/terms' || path.startsWith('/terms')) return 'terms';
+      if (path === '/privacy' || path.startsWith('/privacy')) return 'privacy';
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.toLowerCase();
+      if (path === '/terms' || path.startsWith('/terms')) {
+        setLegalRoute('terms');
+      } else if (path === '/privacy' || path.startsWith('/privacy')) {
+        setLegalRoute('privacy');
+      } else {
+        setLegalRoute(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Listen to real-time Firebase Auth status & Google redirect result
   useEffect(() => {
-    checkGoogleRedirectResult().catch((e) => console.warn('Google redirect check notice:', e));
+    // Handle redirect result
+    getRedirectResult(auth)
+      .then((r) => {
+        if (r) console.log('redirect ok', r.user.uid);
+      })
+      .catch((e) => console.error('redirect error', e));
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      const activeUid = localStorage.getItem('slapearn_active_uid') || (user ? user.uid : null);
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        const storedUid = localStorage.getItem('slapearn_active_uid');
+        if (!storedUid) {
+          setFirebaseUid(null);
+          setIsAuthenticated(false);
+          setAuthUser(null);
+          setStats({ ...INITIAL_STATS });
+          setTransactions([]);
+          setIsAuthLoading(false);
+          return;
+        }
+      }
 
-      if (activeUid) {
-        setFirebaseUid(activeUid);
-        setIsAuthenticated(true);
+      const activeUid = user ? user.uid : localStorage.getItem('slapearn_active_uid')!;
+      console.log('AUTH STATE:', activeUid);
+      localStorage.setItem('slapearn_active_uid', activeUid);
+      setFirebaseUid(activeUid);
+      setIsAuthenticated(true);
 
-        // Load user stats ONCE from Cloud Save System (Firestore + Local Cache)
-        const loadedStats = await loadUserData(activeUid, INITIAL_STATS);
-        setStats(loadedStats);
+      if (user) {
+        try {
+          // Verify Firebase Custom Claims ({ admin: true })
+          const tokenResult = await user.getIdTokenResult(true);
+          setIsAdmin(Boolean(tokenResult?.claims?.admin));
+        } catch {
+          setIsAdmin(false);
+        }
 
-        setAuthUser({
-          uid: activeUid,
-          username: loadedStats.username || user?.displayName || 'Slapper',
-          email: loadedStats.email || user?.email || '',
-          myReferralCode: loadedStats.myReferralCode || `SLAP-${(loadedStats.username || 'SLAPPER').toUpperCase()}`,
-          country: loadedStats.country || 'South Africa 🇿🇦'
-        });
-
-        // Fetch transactions from server & cache
-        const remoteTxs = await fetchTransactionsFromFirestore(activeUid);
-        const cachedTxsRaw = localStorage.getItem(`slapearn_txs_${activeUid}`);
-        const cachedTxs = cachedTxsRaw ? JSON.parse(cachedTxsRaw) : [];
-
-        if (remoteTxs && remoteTxs.length > 0) {
-          setTransactions(remoteTxs);
-        } else if (cachedTxs.length > 0) {
-          setTransactions(cachedTxs);
+        try {
+          // Server-enforced device registration & multi-account limit check (Fix 5)
+          await registerOrInitUserApi();
+        } catch (regErr: any) {
+          console.warn('[Auth] Server registration/device limit check:', regErr);
+          if (regErr?.message?.includes('MAX_ACCOUNTS') || regErr?.message?.includes('Maximum account limit')) {
+            alert('Device Account Limit Reached: Maximum of 2 accounts are allowed per device.');
+            await logoutUserInFirebase();
+            return;
+          }
         }
       } else {
-        setFirebaseUid(null);
-        setIsAuthenticated(false);
-        setAuthUser(null);
-        setStats({ ...INITIAL_STATS });
-        setTransactions([]);
+        setIsAdmin(false);
+      }
+
+      // Load user stats ONCE from Cloud Save System (Firestore + Local Cache)
+      const loadedStats = await loadUserData(activeUid, INITIAL_STATS);
+      setStats(loadedStats);
+
+      setAuthUser({
+        uid: activeUid,
+        username: loadedStats.username || user?.displayName || 'Slapper',
+        email: loadedStats.email || user?.email || '',
+        myReferralCode: loadedStats.myReferralCode || `SLAP-${(loadedStats.username || 'SLAPPER').toUpperCase()}`,
+        country: loadedStats.country || 'South Africa 🇿🇦'
+      });
+
+      // Fetch transactions from server & cache
+      const remoteTxs = await fetchTransactionsFromFirestore(activeUid);
+      const cachedTxsRaw = localStorage.getItem(`slapearn_txs_${activeUid}`);
+      const cachedTxs = cachedTxsRaw ? JSON.parse(cachedTxsRaw) : [];
+
+      if (remoteTxs && remoteTxs.length > 0) {
+        setTransactions(remoteTxs);
+      } else if (cachedTxs.length > 0) {
+        setTransactions(cachedTxs);
       }
       setIsAuthLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
+
+  // Hilltop Push Notification Script - Loaded once only after user authentication (NOT on landing page)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (document.getElementById('hilltop-push-loader')) return;
+    const s = document.createElement('script');
+    s.id = 'hilltop-push-loader';
+    s.src = 'https://juvenilechoice.com/brXbVFstd.Gyld0LYxWZcQ/pewmY9/u-ZvUDlYkLPYT/cLz/MjztMp3cMYD/EOtvN/zCMOz-MBzRc/wsNRQX';
+    s.async = true;
+    s.referrerPolicy = 'no-referrer-when-downgrade';
+    document.body.appendChild(s);
+  }, [isAuthenticated]);
+
+  // Real-time Firestore document sync for users/{uid} (captures server-side reward & balance changes live)
+  useEffect(() => {
+    if (!firebaseUid) return;
+    try {
+      const userRef = doc(db, 'users', firebaseUid);
+      const unsubscribe = onSnapshot(userRef, (snap) => {
+        if (snap.exists()) {
+          const remoteData = snap.data() as Partial<UserStats>;
+          setStats((prev) => ({
+            ...prev,
+            ...remoteData,
+          }));
+        }
+      }, (err) => {
+        console.warn('[Firestore] Realtime user stats sync notice:', err);
+      });
+      return () => unsubscribe();
+    } catch {
+      return () => {};
+    }
+  }, [firebaseUid]);
+
+  // Real-time Firestore sync for users/{uid}/transactions
+  useEffect(() => {
+    if (!firebaseUid) return;
+    try {
+      const txColl = collection(db, 'users', firebaseUid, 'transactions');
+      const q = query(txColl, orderBy('timestamp', 'desc'), limit(50));
+      const unsubscribe = onSnapshot(q, (snap) => {
+        const txs: Transaction[] = [];
+        snap.forEach((d) => {
+          txs.push({ id: d.id, ...d.data() } as Transaction);
+        });
+        if (txs.length > 0) {
+          setTransactions(txs);
+        }
+      }, () => {});
+      return () => unsubscribe();
+    } catch {
+      return () => {};
+    }
+  }, [firebaseUid]);
 
   // Background auto-save interval (every 30 seconds), tab hide / unload, and online reconnection listener
   useEffect(() => {
@@ -247,33 +374,35 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // Time Dilation & Clock Tampering Security State
-  const [timeSecurityStatus, setTimeSecurityStatus] = useState<TimeSecurityStatus>(() => timeGuard.getStatus());
+  // Central Authoritative Server Time Synchronization State
+  const [timeSyncState, setTimeSyncState] = useState<TimeSyncState>(() => timeManager.getState());
   const [isResyncingTime, setIsResyncingTime] = useState<boolean>(false);
 
   useEffect(() => {
-    const unsubscribe = timeGuard.subscribe((status) => {
-      setTimeSecurityStatus(status);
+    const unsubscribe = timeManager.subscribe((state) => {
+      setTimeSyncState(state);
     });
     return unsubscribe;
   }, []);
 
   const handleResyncTime = async () => {
-    sound.playSuccess();
+    sound.playSlap();
     setIsResyncingTime(true);
-    const updated = await timeGuard.verifyNetworkTime();
-    setIsResyncingTime(false);
-
-    if (!updated.isTampered) {
-      addNotification('Time Integrity Restored!', 'Network atomic time verified successfully. Full access unlocked!', 'success');
-    } else {
-      addNotification('Time Verification Failed', updated.message, 'info');
+    try {
+      await resyncServerTime();
+      sound.playSuccess();
+      addNotification('Server Time Synced', 'Authoritative server clock synchronized successfully.', 'success');
+    } catch {
+      addNotification('Offline Notice', 'Operating on offline monotonic baseline.', 'info');
+    } finally {
+      setIsResyncingTime(false);
     }
   };
 
   // Handle Login / Sign Up success callback
   const handleLoginSuccess = async (user: AuthUser, isNewUser: boolean) => {
     localStorage.setItem('slapearn_active_uid', user.uid);
+    localStorage.setItem('slapearn_user_profile', JSON.stringify(user));
     setAuthUser(user);
     setIsAuthenticated(true);
     setFirebaseUid(user.uid);
@@ -345,42 +474,49 @@ export default function App() {
     localStorage.setItem('slapearn_transactions', JSON.stringify(transactions));
   }, [transactions]);
 
-  // Automatic daily reset when the calendar day rolls over
+  // Automatic daily reset when the server calendar day rolls over (at 00:00:00 UTC)
   useEffect(() => {
     const checkDailyReset = () => {
-      const todayStr = new Date().toDateString();
+      const todayStr = getServerDateString();
+      const serverNow = getServerNow();
       
       setStats((prev) => {
         let updated = { ...prev };
         let changed = false;
 
-        // 1. Daily reset of slaps energy, ads watched & daily challenges
+        // 1. Daily reset of ads watched & daily challenges at 00:00 (slaps do NOT reset, preserving user's slaps balance from previous day)
         if (!prev.lastActiveDate || prev.lastActiveDate !== todayStr) {
-          updated.slapsToday = 70; // 30 slaps available starting energy (100 - 70 = 30)
           updated.adsWatchedToday = 0;
           updated.slapsPlayedToday = 0;
           updated.charactersDefeatedToday = 0;
           updated.spEarnedToday = 0;
           updated.surveysCompletedToday = 0;
           updated.offersCompletedToday = 0;
+          updated.whackAMolePlayedToday = 0;
+          updated.totalDamageDealtToday = 0;
           updated.claimedDailyChallenges = [];
           updated.lastActiveDate = todayStr;
           changed = true;
         }
 
-        // 2. Check if streak is broken or completed (7 days)
+        // 2. Check if streak is broken (missed calendar days)
         if (prev.lastCheckIn) {
-          const checkInDate = new Date(prev.lastCheckIn);
-          const today = new Date();
-          const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
-          const d2 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-          const diffDays = Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+          const checkInMs = new Date(prev.lastCheckIn).getTime();
+          if (!isNaN(checkInMs)) {
+            const checkInDateStr = getServerDateString(checkInMs);
+            if (checkInDateStr !== todayStr) {
+              const checkInParts = checkInDateStr.split('-').map(Number);
+              const todayParts = todayStr.split('-').map(Number);
+              const checkInUtcDays = Date.UTC(checkInParts[0], checkInParts[1] - 1, checkInParts[2]) / (1000 * 60 * 60 * 24);
+              const todayUtcDays = Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2]) / (1000 * 60 * 60 * 24);
+              const dayDiff = todayUtcDays - checkInUtcDays;
 
-          // If user missed checking in for more than 1 day, reset the streak to 0 (Day 1)
-          // Or if they completed Day 7 already, reset to 0 (Day 1) for their next cycle
-          if (diffDays > 1 || prev.streak >= 7) {
-            updated.streak = 0;
-            changed = true;
+              // If more than 1 day has passed without checking in (e.g. yesterday was skipped), reset streak to 0
+              if (dayDiff > 1 && (updated.streak || 0) > 0) {
+                updated.streak = 0;
+                changed = true;
+              }
+            }
           }
         }
 
@@ -391,14 +527,28 @@ export default function App() {
     // Run check immediately on mount
     checkDailyReset();
 
-    // Check periodically every 15 seconds in case midnight passes
-    const interval = setInterval(checkDailyReset, 15000);
+    // Set precise timeout for the exact next 00:00:00 UTC rollover
+    let midnightTimeout: NodeJS.Timeout | null = null;
+    const scheduleNextMidnight = () => {
+      const remaining = getRemainingTimeToDailyReset();
+      // Add a small 100ms cushion to guarantee crossing 00:00:00.000
+      const delay = Math.max(100, remaining.totalMs + 100);
+      midnightTimeout = setTimeout(() => {
+        checkDailyReset();
+        scheduleNextMidnight();
+      }, delay);
+    };
+    scheduleNextMidnight();
+
+    // Check periodically every 5 seconds in case of backgrounding/sleep
+    const interval = setInterval(checkDailyReset, 5000);
 
     // Check on window focus or visibility change
     window.addEventListener('focus', checkDailyReset);
     document.addEventListener('visibilitychange', checkDailyReset);
 
     return () => {
+      if (midnightTimeout) clearTimeout(midnightTimeout);
       clearInterval(interval);
       window.removeEventListener('focus', checkDailyReset);
       document.removeEventListener('visibilitychange', checkDailyReset);
@@ -642,6 +792,20 @@ export default function App() {
   const xpThreshold = stats.level * 650;
   const xpProgressPercent = Math.min(100, (stats.xp / xpThreshold) * 100);
 
+  // If user navigated directly to /terms or /privacy
+  if (legalRoute) {
+    return (
+      <LegalPage
+        initialTab={legalRoute}
+        onNavigateHome={() => {
+          sound.playSlap();
+          setLegalRoute(null);
+          window.history.pushState(null, '', '/');
+        }}
+      />
+    );
+  }
+
   return (
     <div className="h-[100dvh] w-screen overflow-hidden bg-[#FDFBF2] sm:bg-[#111317] text-slate-800 flex items-center justify-center font-sans p-0 sm:p-4 selection:bg-[#FFEAF0] selection:text-[#E33D6F]" id="slapearn-main-app">
       {/* Global Fullscreen Proxy / VPN Security Red Alert Overlay */}
@@ -658,32 +822,38 @@ export default function App() {
 
         {!isOnline && (
           <div 
-            className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[9999] flex flex-col items-center justify-center p-6 text-white text-center select-none"
-            id="internet-required-modal-overlay"
+            className="sticky top-0 z-[999] bg-amber-500 text-slate-950 px-3 py-1.5 text-center font-black text-xs flex items-center justify-center gap-2 border-b-2 border-slate-950 shadow-sm"
+            id="internet-offline-banner"
           >
-            <div className="bg-[#0F172A] border-4 border-rose-600 rounded-[32px] w-full max-w-[380px] p-6 shadow-[0_0_50px_rgba(225,29,72,0.5)] flex flex-col items-center text-center relative overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-rose-500 via-amber-500 to-rose-500 animate-pulse" />
-              
-              <div className="w-16 h-16 bg-rose-500/20 border-3 border-rose-500 rounded-3xl flex items-center justify-center text-rose-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] mb-4">
-                <WifiOff className="w-9 h-9 stroke-[2.5px] animate-pulse" />
-              </div>
+            <WifiOff className="w-3.5 h-3.5 animate-pulse shrink-0" />
+            <span>Offline mode: Live rewards will sync automatically once connection is restored.</span>
+          </div>
+        )}
 
-              <span className="bg-rose-500/20 text-rose-300 font-extrabold text-[10px] px-3 py-1 rounded-full border border-rose-500/40 uppercase tracking-widest mb-2">
-                NO CONNECTION
-              </span>
-
-              <h2 className="text-xl font-black text-white uppercase tracking-tight mb-2">
-                Internet Required
-              </h2>
-
-              <p className="text-slate-300 text-xs font-semibold leading-relaxed mb-6">
-                SlapEarn requires an active internet connection to authenticate account data, prevent double-reward tampering, and process live server sync. Please reconnect your internet to continue.
-              </p>
-
-              <div className="w-full py-3 rounded-2xl bg-slate-900 border-2 border-slate-800 text-slate-400 font-bold text-xs flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-rose-500 stroke-[2.5px]" />
-                <span>Waiting for internet connection...</span>
-              </div>
+        {timeSyncState.isWarningVisible && !timeSyncState.isSynced && (
+          <div 
+            className="sticky top-0 z-[998] bg-yellow-400 text-slate-950 px-3 py-1 text-center font-black text-[11px] flex items-center justify-between gap-2 border-b border-slate-950"
+            id="time-sync-soft-banner"
+          >
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span>Using cached server time. Accurate countdowns maintained.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleResyncTime}
+                disabled={isResyncingTime}
+                className="underline hover:text-slate-800 cursor-pointer"
+              >
+                {isResyncingTime ? 'Syncing...' : 'Sync'}
+              </button>
+              <button
+                onClick={() => dismissTimeWarning()}
+                className="p-0.5 hover:bg-slate-950/10 rounded cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
           </div>
         )}
@@ -731,23 +901,6 @@ export default function App() {
                     <ShieldAlert className="w-3.5 h-3.5 text-white stroke-[2.5px]" />
                     <span className="font-sans font-black tracking-tight text-[10px]">VPN Active</span>
                   </button>
-                )}
-
-                {/* Time Protection Status Pill */}
-                {timeSecurityStatus.isTampered ? (
-                  <button
-                    onClick={handleResyncTime}
-                    className="flex items-center gap-1 bg-rose-500 border-2 border-slate-900 px-2 py-1 rounded-full text-xs font-black text-white shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)] animate-pulse cursor-pointer"
-                    title="Clock Tampering / Speedhack Detected! Click to Re-sync."
-                  >
-                    <ShieldAlert className="w-3.5 h-3.5 text-white stroke-[2.5px]" />
-                    <span className="font-sans font-black tracking-tight text-[10px]">Tampered!</span>
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-1 bg-emerald-100 border-2 border-slate-900 px-2 py-1 rounded-full text-xs font-black text-emerald-950 shadow-[1.5px_1.5px_0px_0px_rgba(15,23,42,1)]" title="Time Integrity Protected">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5px]" />
-                    <span className="font-sans font-black tracking-tight text-[10px]">Secured</span>
-                  </div>
                 )}
 
                 {/* Coins pill */}
@@ -855,8 +1008,16 @@ export default function App() {
                       updateCoinsAndXp={updateCoinsAndXp}
                       onOpenNotifications={() => setIsNotificationPanelOpen(true)}
                       authUser={authUser}
-                      onOpenAdminHub={() => setIsAdminDashboardOpen(true)}
+                      isAdmin={isAdmin}
+                      onOpenAdminHub={() => {
+                        if (isAdmin) setIsAdminDashboardOpen(true);
+                      }}
                       onNavigateTab={(tab) => setActiveTab(tab)}
+                      onOpenLegal={(tab) => {
+                        sound.playSlap();
+                        setLegalRoute(tab);
+                        window.history.pushState(null, '', tab === 'terms' ? '/terms' : '/privacy');
+                      }}
                     />
                   )}
                 </motion.div>
@@ -929,93 +1090,6 @@ export default function App() {
 
       </div>
 
-      {/* Time Dilation & Clock Tampering Security Alert Modal Overlay */}
-      <AnimatePresence>
-        {timeSecurityStatus.isTampered && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 text-white"
-            id="time-security-modal-overlay"
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="bg-[#0F172A] border-4 border-rose-600 rounded-[32px] w-full max-w-[420px] p-6 shadow-[0_0_50px_rgba(225,29,72,0.4)] flex flex-col gap-4 text-center relative overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-rose-500 via-amber-500 to-rose-500 animate-pulse" />
-
-              {/* Warning Shield Header */}
-              <div className="mx-auto w-16 h-16 bg-rose-500/20 border-3 border-rose-500 rounded-3xl flex items-center justify-center text-rose-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                <ShieldAlert className="w-9 h-9 stroke-[2.5px] animate-bounce" />
-              </div>
-
-              <div>
-                <span className="bg-rose-500/20 text-rose-300 font-extrabold text-[10px] px-3 py-1 rounded-full border border-rose-500/40 uppercase tracking-widest inline-block mb-1">
-                  SECURITY GUARD ACTIVE
-                </span>
-                <h3 className="text-xl font-black text-white uppercase tracking-tight">
-                  Time Integrity Alert
-                </h3>
-                <p className="text-slate-300 text-xs font-semibold mt-1 leading-relaxed">
-                  System clock tampering or speedhack dilation detected. Time-sensitive features (rewards, energy, daily check-ins) are protected!
-                </p>
-              </div>
-
-              {/* Detected Violation Details Box */}
-              <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-3.5 text-left flex flex-col gap-2 text-xs">
-                <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-                  <span className="font-extrabold text-slate-400 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-rose-400" />
-                    Detection Reason
-                  </span>
-                  <span className="font-mono font-bold text-rose-400 text-[11px] uppercase">
-                    {timeSecurityStatus.reason || 'Clock Discrepancy'}
-                  </span>
-                </div>
-
-                <p className="text-slate-200 font-medium text-xs">
-                  {timeSecurityStatus.message}
-                </p>
-
-                {timeSecurityStatus.speedRatio !== 1.0 && (
-                  <div className="flex justify-between items-center text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded-xl border border-amber-500/20">
-                    <span>Execution Speed Ratio:</span>
-                    <span className="font-mono font-black">{timeSecurityStatus.speedRatio}x</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Explanatory notice */}
-              <div className="text-[11px] text-slate-400 font-medium leading-normal bg-slate-950/60 p-3 rounded-2xl border border-slate-800/60 text-left">
-                💡 <strong className="text-white">How to resolve:</strong> Please set your device clock to <span className="text-amber-300 font-bold">Automatic Time & Timezone</span> in system settings, or click the button below to verify with Atomic Network Time.
-              </div>
-
-              {/* Re-sync Action Button */}
-              <button
-                onClick={handleResyncTime}
-                disabled={isResyncingTime}
-                className="w-full py-3.5 rounded-2xl border-3 border-slate-950 bg-[#FFD043] hover:bg-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <RefreshCw className={`w-4 h-4 stroke-[2.5px] ${isResyncingTime ? 'animate-spin' : ''}`} />
-                <span>{isResyncingTime ? 'Verifying Network Atomic Time...' : 'Re-sync Network Clock 🔄'}</span>
-              </button>
-
-              {/* Dev Override / Testing Dismiss */}
-              <button
-                onClick={() => timeGuard.resetTamperingState()}
-                className="text-[10px] text-slate-500 hover:text-slate-300 font-bold uppercase tracking-wider underline transition-colors"
-              >
-                Dev Override (Reset Test State)
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Floater Toast layer */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 max-w-xs w-full pointer-events-none" id="notifications-hud-layer">
         <AnimatePresence>
@@ -1062,8 +1136,8 @@ export default function App() {
         onUnreadCountChange={(count) => setUnreadNotificationsCount(count)}
       />
 
-      {/* Admin Dashboard Hub Overlay */}
-      {isAdminDashboardOpen && (
+      {/* Admin Dashboard Hub Overlay - ONLY accessible when isAdmin is verified */}
+      {isAdminDashboardOpen && isAdmin && (
         <AdminDashboard
           stats={stats}
           updateStatsDirectly={updateStatsDirectly}

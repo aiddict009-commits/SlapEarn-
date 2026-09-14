@@ -1,128 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Download, X, Smartphone, Sparkles, Monitor, Globe } from 'lucide-react';
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
-
-declare global {
-  interface Window {
-    deferredPWAInstallPrompt?: BeforeInstallPromptEvent;
-  }
-}
+import { usePWAInstall } from '../hooks/usePWAinstall';
 
 export const PWAInstallPrompt: React.FC = () => {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [showPrompt, setShowPrompt] = useState<boolean>(true);
-  const [isIOS, setIsIOS] = useState<boolean>(false);
-  const [isInstalled, setIsInstalled] = useState<boolean>(false);
+  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+  const [dismissed, setDismissed] = useState<boolean>(false);
   const [showIOSGuide, setShowIOSGuide] = useState<boolean>(false);
   const [showChromeGuide, setShowChromeGuide] = useState<boolean>(false);
 
-  useEffect(() => {
-    // Check if app is already running in standalone mode (installed)
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-
-    if (isStandalone) {
-      setIsInstalled(true);
-      return;
-    }
-
-    // Detect iOS
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
-    setIsIOS(isIosDevice);
-
-    // Capture pre-saved prompt from early window listener if available
-    if (window.deferredPWAInstallPrompt) {
-      setDeferredPrompt(window.deferredPWAInstallPrompt);
-    }
-
-    // Listen for beforeinstallprompt & pwa-installable custom events
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      const promptEvent = e as BeforeInstallPromptEvent;
-      window.deferredPWAInstallPrompt = promptEvent;
-      setDeferredPrompt(promptEvent);
-      setShowPrompt(true);
-    };
-
-    const handleCustomInstallable = () => {
-      if (window.deferredPWAInstallPrompt) {
-        setDeferredPrompt(window.deferredPWAInstallPrompt);
-        setShowPrompt(true);
-      }
-    };
-
-    const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setShowPrompt(false);
-      window.deferredPWAInstallPrompt = undefined;
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('pwa-installable', handleCustomInstallable);
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    // Poll for early deferred prompt if event fired before component mount
-    const timer = setInterval(() => {
-      if (window.deferredPWAInstallPrompt) {
-        setDeferredPrompt(window.deferredPWAInstallPrompt);
-      }
-    }, 500);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('pwa-installable', handleCustomInstallable);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-      clearInterval(timer);
-    };
-  }, []);
-
   const handleInstallClick = async () => {
-    // Retrieve freshest prompt event attached to window or state
-    const activePrompt = deferredPrompt || window.deferredPWAInstallPrompt;
-
-    if (activePrompt) {
-      try {
-        // Trigger browser's native 1-click install prompt modal
-        await activePrompt.prompt();
-        const { outcome } = await activePrompt.userChoice;
-        if (outcome === 'accepted') {
-          setIsInstalled(true);
-          setShowPrompt(false);
-        }
-        setDeferredPrompt(null);
-        window.deferredPWAInstallPrompt = undefined;
-      } catch (err) {
-        console.warn('[PWA] Native prompt trigger issue, falling back to guide:', err);
-        if (isIOS) {
-          setShowIOSGuide(true);
-        } else {
-          setShowChromeGuide(true);
-        }
+    const success = await install();
+    if (!success) {
+      if (isIOS) {
+        setShowIOSGuide(true);
+      } else {
+        setShowChromeGuide(true);
       }
-    } else if (isIOS) {
-      setShowIOSGuide(true);
-    } else {
-      setShowChromeGuide(true);
     }
   };
 
-  if (isInstalled || !showPrompt) return null;
+  if (isInstalled || dismissed) return null;
 
   return (
     <>
       {/* Floating PWA Install Banner */}
       <div className="fixed bottom-16 left-3 right-3 sm:left-auto sm:right-6 sm:bottom-6 sm:max-w-sm z-50 bg-[#0F172A] border-3 border-[#00D09E] rounded-2xl p-3.5 shadow-[0_8px_25px_rgba(0,0,0,0.5)] animate-bounce-short">
         <div className="flex items-center justify-between gap-2.5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#00D09E]/20 border border-[#00D09E] flex items-center justify-center shrink-0 overflow-hidden relative">
-              <img src="/icon-192.png" alt="SlapEarn" className="w-full h-full object-cover" />
-            </div>
+          <div className="flex items-center gap-2.5">
             <div>
               <div className="flex items-center gap-1">
                 <span className="text-xs font-black text-white leading-tight">Install SlapEarn App</span>
@@ -136,7 +40,7 @@ export const PWAInstallPrompt: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setShowPrompt(false)}
+            onClick={() => setDismissed(true)}
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
             title="Dismiss"
           >
@@ -151,7 +55,7 @@ export const PWAInstallPrompt: React.FC = () => {
             className="w-full bg-[#00D09E] hover:bg-[#00B88B] text-slate-950 font-black text-xs py-2 px-3 rounded-xl border-2 border-slate-950 shadow-[2px_2px_0px_0px_#0F172A] flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 stroke-[3]" />
-            <span>{isIOS ? 'Add to Home Screen' : 'Install SlapEarn App'}</span>
+            <span>Direct Install SlapEarn App</span>
           </button>
         </div>
       </div>
@@ -163,7 +67,7 @@ export const PWAInstallPrompt: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Smartphone className="w-5 h-5 text-amber-400" />
-                <h4 className="font-black text-base">Install on iOS Safari</h4>
+                <h4 className="font-black text-base">Direct Install on iOS</h4>
               </div>
               <button
                 onClick={() => setShowIOSGuide(false)}
@@ -176,15 +80,15 @@ export const PWAInstallPrompt: React.FC = () => {
             <ol className="text-xs space-y-3 font-bold text-slate-200 my-4 bg-slate-900/80 p-3.5 rounded-xl border border-slate-800">
               <li className="flex items-start gap-2">
                 <span className="bg-amber-400 text-slate-950 font-black w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
-                <span>Tap the <strong className="text-amber-300">Share button</strong> (square with arrow up) at the bottom of Safari.</span>
+                <span>Tap the <strong className="text-amber-300">Share icon</strong> in Safari.</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="bg-amber-400 text-slate-950 font-black w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
-                <span>Scroll down and select <strong className="text-amber-300 font-black">"Add to Home Screen"</strong>.</span>
+                <span>Tap <strong className="text-amber-300 font-black">"Add to Home Screen"</strong> / <strong className="text-amber-300 font-black">"Install App"</strong>.</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="bg-amber-400 text-slate-950 font-black w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 mt-0.5">3</span>
-                <span>Tap <strong className="text-amber-300">Add</strong> in top right to launch SlapEarn as a full app!</span>
+                <span>Tap <strong className="text-amber-300">Add</strong> to launch SlapEarn as a standalone application!</span>
               </li>
             </ol>
 
@@ -205,7 +109,7 @@ export const PWAInstallPrompt: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Globe className="w-5 h-5 text-[#00D09E]" />
-                <h4 className="font-black text-base">Install App Instructions</h4>
+                <h4 className="font-black text-base">Direct Install App</h4>
               </div>
               <button
                 onClick={() => setShowChromeGuide(false)}
@@ -218,15 +122,15 @@ export const PWAInstallPrompt: React.FC = () => {
             <ol className="text-xs space-y-3 font-bold text-slate-200 my-4 bg-slate-900/80 p-3.5 rounded-xl border border-slate-800">
               <li className="flex items-start gap-2">
                 <span className="bg-[#00D09E] text-slate-950 font-black w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
-                <span>Open <strong className="text-[#00D09E]">Chrome / Edge / Safari</strong> browser menu (top right <strong>⋮</strong> or share icon).</span>
+                <span>In <strong className="text-[#00D09E]">Chrome / Edge</strong>, tap the browser menu (top right <strong>⋮</strong> or install icon in URL bar).</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="bg-[#00D09E] text-slate-950 font-black w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
-                <span>Select <strong className="text-[#00D09E] font-black">"Install App"</strong> or <strong className="text-[#00D09E] font-black">"Add to Home screen"</strong>.</span>
+                <span>Select <strong className="text-[#00D09E] font-black">"Install SlapEarn App"</strong>.</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="bg-[#00D09E] text-slate-950 font-black w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 mt-0.5">3</span>
-                <span>Confirm install to play SlapEarn standalone directly from your app drawer!</span>
+                <span>Click <strong className="text-[#00D09E]">Install</strong> to install SlapEarn directly to your device!</span>
               </li>
             </ol>
 

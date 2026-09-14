@@ -12,6 +12,13 @@ import { HandVisual } from './HandVisual';
 import { AnimatedOdometer } from './AnimatedOdometer';
 import { AdsterraBanner, triggerRewardedAdScript, RewardedAdScript, checkRewardedAdLoaded } from './AdsterraAds';
 import { LeaderboardModal } from './LeaderboardModal';
+import HilltopRewardedAdModal from './HilltopRewardedAdModal';
+import {
+  getServerNow,
+  getServerDateString,
+  getRemainingTimeToDailyReset,
+  verifyDailyCheckInServer
+} from '../utils/serverTime';
 
 interface HomeProps {
   stats: UserStats;
@@ -33,36 +40,32 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
   const [selectedShopHandId, setSelectedShopHandId] = useState<string>('wooden');
   const [shopViewMode, setShopViewMode] = useState<'inspector' | 'all'>('inspector');
 
-  // Countdown timer to next daily reset (midnight)
-  const [timeLeftStr, setTimeLeftStr] = useState<string>('');
+  // Countdown timer to next server daily reset (midnight UTC)
+  const [timeLeftStr, setTimeLeftStr] = useState<string>(() => getRemainingTimeToDailyReset().formatted);
+  const [currentDateStr, setCurrentDateStr] = useState<string>(() => getServerDateString());
 
   useEffect(() => {
     const updateCountdown = () => {
-      const now = new Date();
-      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
-      const diffMs = tomorrow.getTime() - now.getTime();
-      
-      if (diffMs <= 0) {
-        setTimeLeftStr('00h 00m 00s');
-        return;
-      }
-
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      setTimeLeftStr(`${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`);
+      const remaining = getRemainingTimeToDailyReset();
+      setTimeLeftStr(remaining.formatted);
+      setCurrentDateStr(getServerDateString());
     };
 
     updateCountdown();
     const timer = setInterval(updateCountdown, 1000);
-    return () => clearInterval(timer);
+    window.addEventListener('focus', updateCountdown);
+    document.addEventListener('visibilitychange', updateCountdown);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', updateCountdown);
+      document.removeEventListener('visibilitychange', updateCountdown);
+    };
   }, []);
 
-  // Check if claimed daily streak today
+  // Check if claimed daily streak today using server calendar day
   const hasClaimedToday = stats.lastCheckIn 
-    ? new Date(stats.lastCheckIn).toDateString() === new Date().toDateString() 
+    ? getServerDateString(stats.lastCheckIn) === currentDateStr 
     : false;
 
   const daysOfCheckIn = [
@@ -75,44 +78,50 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
     { day: 7, slaps: 5, coins: 150 }
   ];
 
-  const handleClaimDaily = () => {
+  const handleClaimDaily = async () => {
     if (hasClaimedToday) {
       sound.playError();
       addNotification('Already Claimed', 'You have already claimed today\'s daily reward. Come back tomorrow!', 'info');
       return;
     }
 
-    const currentStreakIndex = stats.streak >= 7 ? 0 : stats.streak;
-    const nextStreak = currentStreakIndex + 1;
-    const rewardItem = daysOfCheckIn[currentStreakIndex];
-    if (!rewardItem) return;
+    const verification = await verifyDailyCheckInServer(
+      stats.lastCheckIn,
+      stats.streak,
+      stats.slapsToday,
+      stats.maxSlapsPerDay
+    );
 
+    if (!verification.isEligible) {
+      sound.playError();
+      addNotification('Already Claimed', verification.message || 'Already claimed today\'s daily reward.', 'info');
+      return;
+    }
+
+    const nextStreak = verification.nextStreak;
+    const coinsToGive = verification.coinsToGive;
+    const slapsToGive = verification.slapsToGive;
     const currentSlaps = Math.max(0, stats.maxSlapsPerDay - stats.slapsToday);
-    const maxSlapsLimit = 100;
-    const spaceLeft = maxSlapsLimit - currentSlaps;
-    const slapsToGive = Math.max(0, Math.min(rewardItem.slaps, spaceLeft));
-    const nextSlapsToday = stats.maxSlapsPerDay - (currentSlaps + slapsToGive);
+    const nextSlapsToday = Math.max(0, stats.maxSlapsPerDay - (currentSlaps + slapsToGive));
+    const nowIso = new Date(verification.serverTime).toISOString();
 
-    if (rewardItem.coins > 0) {
-      updateCoinsAndXp(rewardItem.coins, 10, 'Daily Check-in', `Day ${nextStreak} Daily Login Reward`);
+    if (coinsToGive > 0) {
+      updateCoinsAndXp(coinsToGive, 10, 'Daily Check-in', `Day ${nextStreak} Daily Login Reward`);
     } else {
       updateCoinsAndXp(0, 10, 'Daily Check-in', `Day ${nextStreak} Daily Login Reward`);
     }
 
     updateStatsDirectly({
       streak: nextStreak,
-      lastCheckIn: new Date().toISOString(),
+      lastCheckIn: nowIso,
       slapsToday: nextSlapsToday
     });
 
     sound.playSuccess();
 
     let rewardMsg = `Earned +${slapsToGive} Slaps!`;
-    if (rewardItem.coins > 0) {
-      rewardMsg = `Earned +${slapsToGive} Slaps & +${rewardItem.coins} SP!`;
-    }
-    if (slapsToGive < rewardItem.slaps) {
-      rewardMsg += ` (Reached the 100 Slaps limit)`;
+    if (coinsToGive > 0) {
+      rewardMsg = `Earned +${slapsToGive} Slaps & +${coinsToGive} SP!`;
     }
     
     addNotification('Check-in Claimed!', rewardMsg, 'success');
@@ -147,7 +156,7 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
   const adsWatchedToday = stats.adsWatchedToday || 0;
   const totalTasksCompleted = stats.totalTasksCompleted || 0;
 
-  // Watch Ad Handler
+  // Watch Ad Handler (HilltopAds VAST Zone 7333693)
   const startWatchingAd = () => {
     if (adsWatchedToday >= 20) {
       sound.playError();
@@ -155,42 +164,18 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
       return;
     }
 
-    // Step 1: Check if ad is loaded
-    if (!checkRewardedAdLoaded()) {
-      sound.playError();
-      addNotification('Ad Not Loaded', 'Ad is not loaded yet, please try again.', 'info');
-      triggerRewardedAdScript(); // Attempt preloading for next tap
-      return;
-    }
-
-    triggerRewardedAdScript();
-
+    sound.playSlap();
     setShowAdModal(true);
-    setAdPlaying(true);
-    setAdProgress(0);
-
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 20;
-      setAdProgress(progress);
-      if (progress >= 100) {
-        clearInterval(interval);
-        handleAdRewardSuccess();
-      }
-    }, 1000); // 5 second ad playback
-
-    (window as any).currentAdTimer = interval;
   };
 
-  const handleAdRewardSuccess = () => {
-    setAdPlaying(false);
+  const handleAdRewardSuccess = (reward: { slapsRefilled: number; spAwarded: number; xpAwarded: number; totalAdsWatchedLifetime: number }) => {
+    setShowAdModal(false);
     sound.playSuccess();
 
     const newAdsToday = adsWatchedToday + 1;
-    const newAdsLifetime = lifetimeAdsWatched + 1;
-
-    // Reward player with +3 slaps and +5 SP ONLY when ad is completed
-    const nextSlapsToday = Math.max(0, stats.slapsToday - 3);
+    const newAdsLifetime = reward.totalAdsWatchedLifetime || (lifetimeAdsWatched + 1);
+    const slapsRestored = reward.slapsRefilled || 3;
+    const nextSlapsToday = Math.max(0, stats.slapsToday - slapsRestored);
 
     updateStatsDirectly({
       adsWatchedToday: newAdsToday,
@@ -198,24 +183,19 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
       slapsToday: nextSlapsToday
     });
 
-    updateCoinsAndXp(5, 10, 'Ad', 'Watched Video Ad');
+    updateCoinsAndXp(reward.spAwarded || 5, reward.xpAwarded || 10, 'Ad', 'Watched Video Ad (HilltopAds Zone 7333693)');
 
     addNotification(
       '🎉 Ad Completed!',
-      `+1 Ad Added to Lifetime Progress (${newAdsLifetime} Total)! +3 Slaps Refilled & +5 SP!`,
+      `+1 Ad Added to Lifetime Progress (${newAdsLifetime} Total)! +${slapsRestored} Slaps Refilled & +${reward.spAwarded || 5} SP!`,
       'success'
     );
   };
 
-  const handleAdFailedOrSkipped = () => {
-    if ((window as any).currentAdTimer) {
-      clearInterval((window as any).currentAdTimer);
-    }
-    setAdPlaying(false);
+  const handleAdFailedOrSkipped = (reason?: string) => {
     setShowAdModal(false);
-    setAdProgress(0);
     sound.playError();
-    addNotification('Ad Incomplete', 'Ad didn\'t complete, try again', 'info');
+    addNotification('Ad Incomplete', reason || 'Ad did not complete. Watch full video to earn rewards!', 'info');
   };
 
   // Complete Simulated Task
@@ -1287,79 +1267,15 @@ export default function Home({ stats, updateCoinsAndXp, updateStatsDirectly, add
         )}
       </AnimatePresence>
 
-      {/* Video Ad Player Modal */}
-      <AnimatePresence>
-        {showAdModal && (
-          <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-[#0F172A] border-4 border-slate-950 rounded-[28px] w-full max-w-[360px] p-5 relative shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-white overflow-hidden flex flex-col items-center text-center"
-            >
-              <div className="w-14 h-14 bg-rose-500 border-4 border-slate-950 rounded-2xl flex items-center justify-center mb-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                <Tv className="w-7 h-7 text-white stroke-[2.5px]" />
-              </div>
-
-              <h3 className="text-lg font-black text-white uppercase tracking-tight">Watching Video Ad</h3>
-              <p className="text-xs text-slate-400 font-bold mt-1">
-                Watching ad ({adsWatchedToday + (adProgress >= 100 ? 1 : 0)}/20 today). Ads cannot be skipped!
-              </p>
-
-              {/* Video Player Box */}
-              <div className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 my-3 relative overflow-hidden flex flex-col items-center justify-center min-h-[140px]">
-                {adPlaying ? (
-                  <>
-                    <div className="w-10 h-10 rounded-full border-4 border-amber-400 border-t-transparent animate-spin mb-2" />
-                    <span className="text-xs font-black text-amber-300 uppercase tracking-widest animate-pulse mb-2">
-                      Playing Advertisement... {adProgress}%
-                    </span>
-                    <RewardedAdScript
-                      onAdCompleted={handleAdRewardSuccess}
-                      onUserEarnedReward={handleAdRewardSuccess}
-                      onAdFailedToShow={handleAdFailedOrSkipped}
-                      onAdSkipped={handleAdFailedOrSkipped}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="w-12 h-12 text-emerald-400 mb-2 stroke-[2.5px]" />
-                    <span className="text-sm font-black text-emerald-400 uppercase tracking-wider">
-                      Ad View Completed!
-                    </span>
-                  </>
-                )}
-              </div>
-
-              {/* Progress Bar */}
-              <div className="w-full bg-slate-900 h-3 rounded-full border border-slate-800 overflow-hidden mb-4">
-                <div 
-                  className="bg-gradient-to-r from-amber-400 to-emerald-400 h-full rounded-full transition-all duration-300"
-                  style={{ width: `${adProgress}%` }}
-                />
-              </div>
-
-              <div className="w-full flex gap-2">
-                {adPlaying ? (
-                  <button
-                    onClick={handleAdFailedOrSkipped}
-                    className="w-full py-3 rounded-2xl border-2 border-rose-900/60 bg-rose-950/40 text-rose-300 hover:bg-rose-900/50 font-black text-xs uppercase tracking-wider transition-all"
-                  >
-                    Cancel / Skip Ad
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setShowAdModal(false)}
-                    className="w-full py-3 rounded-2xl border-4 border-slate-950 bg-[#00D09E] text-slate-950 hover:bg-emerald-400 active:scale-95 font-black text-xs uppercase tracking-wider shadow-[2px_2.5px_0px_0px_rgba(255,255,255,1)] transition-all cursor-pointer"
-                  >
-                    Claim & Close
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* HilltopAds VAST Rewarded Video Modal (Zone 7333693) */}
+      <HilltopRewardedAdModal
+        isOpen={showAdModal}
+        onClose={() => setShowAdModal(false)}
+        onRewardSuccess={handleAdRewardSuccess}
+        onAdSkippedOrFailed={handleAdFailedOrSkipped}
+        adsWatchedToday={adsWatchedToday}
+        maxDailyAds={20}
+      />
 
       {/* Offerwall Task Simulator Modal */}
       <AnimatePresence>

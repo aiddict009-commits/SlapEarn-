@@ -1,4 +1,4 @@
-import { doc, setDoc, getDoc, increment, DocumentData } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { UserStats } from '../types';
 
@@ -7,8 +7,8 @@ import { UserStats } from '../types';
  * - Single document per user: users/{uid}
  * - Read ONCE at login / session start
  * - Local state & localStorage caching for instant feedback and offline support
- * - Batched delta updates using Firestore atomic increment() for counters
- * - Flushes only on dirty state, explicit event triggers, periodic interval, or disconnect
+ * - Client-side saves only push allowed profile customizations (skins, audio, bio, displayName, etc.)
+ * - Economy fields (coins, xp, streak, slaps) are server-authoritative and synchronized in real-time
  */
 
 // Memory baseline snapshot of what is currently saved in Firestore for this session
@@ -17,29 +17,24 @@ let pendingSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let isDirty = false;
 let isFlushing = false;
 
-// Numeric fields that should use atomic increment()
-const COUNTER_FIELDS: (keyof UserStats)[] = [
-  'coins',
-  'totalEarned',
-  'spEarnedToday',
-  'xp',
-  'slapsToday',
-  'maxSlapsPerDay',
-  'slapsPlayedToday',
-  'bestCombo',
-  'daysActive',
-  'referrals',
-  'adsWatchedToday',
-  'totalAdsWatchedLifetime',
-  'referralsForCurrentWithdrawal',
-  'totalTasksCompleted',
-  'whackAMolePlayedToday',
-  'totalDamageDealtToday',
-  'charactersDefeatedToday',
-  'surveysCompletedToday',
-  'offersCompletedToday',
-  'freeSpins'
-];
+// Allowed profile fields that the client is permitted to update directly in Firestore
+const CLIENT_ALLOWED_FIELDS = new Set<string>([
+  'displayName',
+  'profilePicture',
+  'photoURL',
+  'country',
+  'username',
+  'avatar',
+  'soundEnabled',
+  'hapticsEnabled',
+  'fcmToken',
+  'selectedHand',
+  'unlockedHands',
+  'equippedTitle',
+  'equippedFrame',
+  'bio',
+  'updatedAt'
+]);
 
 /**
  * Load User Document ONCE from Firestore on sign in / app startup
@@ -50,10 +45,6 @@ export async function loadUserData(uid: string, initialFallback: UserStats): Pro
   const localCacheKey = `slapearn_stats_${uid}`;
   const cachedRaw = localStorage.getItem(localCacheKey);
   const cachedStats: Partial<UserStats> = cachedRaw ? JSON.parse(cachedRaw) : {};
-
-  // Check if there are unsaved pending changes from a previous offline session
-  const pendingRaw = localStorage.getItem(`slapearn_pending_save_${uid}`);
-  const pendingStats: Partial<UserStats> = pendingRaw ? JSON.parse(pendingRaw) : {};
 
   let remoteStats: Partial<UserStats> | null = null;
 
@@ -68,66 +59,46 @@ export async function loadUserData(uid: string, initialFallback: UserStats): Pro
     handleFirestoreError(err, OperationType.GET, `users/${uid}`);
   }
 
-  // Merge order: Default -> Remote Firestore -> Local Cache -> Pending unsaved offline changes
+  // Merge order: Default -> Remote Firestore -> Local Cache
   const merged: UserStats = {
     ...initialFallback,
     ...(remoteStats || {}),
     ...(cachedStats || {}),
-    ...(pendingStats || {}),
     uid
   };
 
   // Set baseline snapshot
   baselineStats = JSON.parse(JSON.stringify(merged));
-  isDirty = Object.keys(pendingStats).length > 0;
+  isDirty = false;
 
   // Cache locally
   localStorage.setItem(localCacheKey, JSON.stringify(merged));
-
-  // If there were pending offline changes, schedule a flush
-  if (isDirty) {
-    scheduleAutoSave(uid, merged, 2000);
-  }
 
   return merged;
 }
 
 /**
- * Calculate atomic delta update payload comparing currentStats vs baselineStats
+ * Calculate client-permitted update payload comparing currentStats vs baselineStats
  */
-
 export function buildUpdatePayload(current: UserStats, baseline: UserStats | null): Record<string, any> {
-  if (!baseline) {
-    // If no baseline exists, return full object
-    return { ...current, updatedAt: new Date().toISOString() };
-  }
-
   const payload: Record<string, any> = {};
 
-  // 1. Process Numeric Counter Fields with atomic increment(delta)
-  for (const field of COUNTER_FIELDS) {
-    const currVal = typeof current[field] === 'number' ? (current[field] as number) : 0;
-    const baseVal = typeof baseline[field] === 'number' ? (baseline[field] as number) : 0;
-    const delta = currVal - baseVal;
-
-    if (delta !== 0) {
-      payload[field] = increment(delta);
+  if (!baseline) {
+    for (const key of CLIENT_ALLOWED_FIELDS) {
+      if ((current as any)[key] !== undefined) {
+        payload[key] = (current as any)[key];
+      }
     }
+    payload.updatedAt = new Date().toISOString();
+    return payload;
   }
 
-  // 2. Process non-counter / complex fields (arrays, strings, booleans)
-  const allKeys = new Set([
-    ...Object.keys(current),
-    ...Object.keys(baseline)
-  ]) as Set<keyof UserStats>;
+  for (const key of CLIENT_ALLOWED_FIELDS) {
+    if (key === 'updatedAt') continue;
 
-  for (const key of allKeys) {
-    if (COUNTER_FIELDS.includes(key) || key === 'uid') continue;
+    const currVal = (current as any)[key];
+    const baseVal = (baseline as any)[key];
 
-    const currVal = current[key];
-    const baseVal = baseline[key];
-
-    // Deep JSON compare for objects/arrays or strict compare for primitives
     const isDifferent = typeof currVal === 'object' || typeof baseVal === 'object'
       ? JSON.stringify(currVal) !== JSON.stringify(baseVal)
       : currVal !== baseVal;
@@ -145,7 +116,7 @@ export function buildUpdatePayload(current: UserStats, baseline: UserStats | nul
 }
 
 /**
- * Flush pending changes to Firestore
+ * Flush pending profile changes to Firestore
  */
 export async function flushPendingUserStats(
   uid: string,
@@ -177,14 +148,13 @@ export async function flushPendingUserStats(
     localStorage.removeItem(`slapearn_pending_save_${uid}`);
     localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(currentStats));
 
-    console.log('[CloudSave] Successfully synced dirty fields to Firestore:', Object.keys(payload));
+    console.log('[CloudSave] Synced allowed client profile fields to Firestore:', Object.keys(payload));
     isFlushing = false;
     return true;
   } catch (err) {
-    console.warn('[CloudSave] Write failed (offline or network error). Storing pending changes locally:', err);
+    console.warn('[CloudSave] Profile write failed:', err);
     handleFirestoreError(err, OperationType.WRITE, `users/${uid}`);
 
-    // Persist pending changes locally so data is not lost
     localStorage.setItem(`slapearn_pending_save_${uid}`, JSON.stringify(currentStats));
     localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(currentStats));
 
@@ -195,15 +165,14 @@ export async function flushPendingUserStats(
 }
 
 /**
- * Mark local state as dirty and schedule a debounced/timed background save
+ * Mark local state as dirty and schedule a debounced background save
  */
 export function markDirtyAndScheduleSave(
   uid: string,
   currentStats: UserStats,
-  delayMs = 30000
+  delayMs = 2000
 ) {
   isDirty = true;
-  // Always update local cache immediately
   if (uid) {
     localStorage.setItem(`slapearn_stats_${uid}`, JSON.stringify(currentStats));
     localStorage.setItem(`slapearn_pending_save_${uid}`, JSON.stringify(currentStats));
@@ -230,14 +199,7 @@ export function scheduleAutoSave(
 }
 
 /**
- * Save immediately on explicit high-value event triggers:
- * - ad_reward_completed
- * - minigame_completed
- * - task_completed
- * - daily_reward_claimed
- * - streak_updated
- * - withdrawal_requested
- * - sign_out
+ * Save immediately on explicit profile update event triggers
  */
 export async function saveOnEvent(
   uid: string,

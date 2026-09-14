@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, MouseEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Flame, Zap, Sparkles, HelpCircle, Check, X, Trophy, RefreshCw, Hand, Star } from 'lucide-react';
+import { Flame, Zap, Sparkles, HelpCircle, Check, X, Trophy, RefreshCw, Hand, Star, Clock } from 'lucide-react';
 import { sound } from '../utils/sound';
 import { UserStats, QuizQuestion, Transaction } from '../types';
+import { getServerNow, getServerDateString, verifyDailyCheckInServer, getRemainingTimeToDailyReset } from '../utils/serverTime';
 
 interface DailyTasksProps {
   stats: UserStats;
@@ -43,18 +44,41 @@ const TRIVIA_QUESTIONS: QuizQuestion[] = [
 ];
 
 export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectly, addNotification }: DailyTasksProps) {
-  // Streaks / Check-in
+  // Streaks / Check-in using authoritative server date string (UTC)
+  const isClaimedToday = (lastCheckIn?: string | null): boolean => {
+    if (!lastCheckIn) return false;
+    return getServerDateString(lastCheckIn) === getServerDateString();
+  };
+
   const [checkInClaimed, setCheckInClaimed] = useState<boolean>(() => {
-    return stats.lastCheckIn 
-      ? new Date(stats.lastCheckIn).toDateString() === new Date().toDateString() 
-      : false;
+    return isClaimedToday(stats.lastCheckIn);
   });
 
+  // Countdown timer to next server daily reset (midnight UTC)
+  const [dailyResetStr, setDailyResetStr] = useState<string>(() => getRemainingTimeToDailyReset().formatted);
+
   useEffect(() => {
-    const claimed = stats.lastCheckIn 
-      ? new Date(stats.lastCheckIn).toDateString() === new Date().toDateString() 
-      : false;
-    setCheckInClaimed(claimed);
+    setCheckInClaimed(isClaimedToday(stats.lastCheckIn));
+  }, [stats.lastCheckIn]);
+
+  useEffect(() => {
+    const updateCountdown = () => {
+      const remaining = getRemainingTimeToDailyReset();
+      setDailyResetStr(remaining.formatted);
+      // Auto-recheck check-in status on midnight rollover
+      setCheckInClaimed(isClaimedToday(stats.lastCheckIn));
+    };
+
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    window.addEventListener('focus', updateCountdown);
+    document.addEventListener('visibilitychange', updateCountdown);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', updateCountdown);
+      document.removeEventListener('visibilitychange', updateCountdown);
+    };
   }, [stats.lastCheckIn]);
   
   // Slap Game state
@@ -114,7 +138,7 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
 
     updateStatsDirectly({
       streak: nextStreak,
-      lastCheckIn: new Date().toISOString(),
+      lastCheckIn: new Date(getServerNow()).toISOString(),
       slapsToday: nextSlapsToday
     });
 
@@ -221,9 +245,16 @@ export default function DailyTasks({ stats, updateCoinsAndXp, updateStatsDirectl
       <section className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl" id="daily-checkin-section">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
-            <div className="flex items-center gap-2 text-amber-500 font-display font-semibold tracking-wide text-sm uppercase">
-              <Flame className="w-5 h-5 fill-amber-500" />
-              <span>Daily Check-in Streaks</span>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2 text-amber-500 font-display font-semibold tracking-wide text-sm uppercase">
+                <Flame className="w-5 h-5 fill-amber-500" />
+                <span>Daily Check-in Streaks</span>
+              </div>
+              <div className="bg-slate-800/80 border border-slate-700/80 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-sm">
+                <Clock className="w-3 h-3 text-amber-400 animate-pulse shrink-0" />
+                <span className="text-[10px] text-slate-400 font-bold uppercase">Resets in:</span>
+                <span className="text-[11px] font-mono font-black text-white tracking-tight">{dailyResetStr || '--h --m --s'}</span>
+              </div>
             </div>
             <h2 className="text-2xl font-bold font-display text-white mt-1">Consistency pays off!</h2>
             <p className="text-slate-400 text-sm mt-1">Claim your daily coin boost. Miss a day, and the streak resets.</p>
